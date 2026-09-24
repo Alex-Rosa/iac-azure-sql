@@ -1,0 +1,28 @@
+# Local secrets / generated state - never commit these
+*.rpm
+Rhel9.zip
+*.pfx
+*.pvk
+*.cer
+*.publishsettings
+
+# deploy.ps1 transcript logs - contain the generated SA / certificate / AG passwords
+logs/
+
+# deploy.ps1 saved per-resource-group credentials (used to resume a failed deploy) - also
+# contains the generated SA / certificate / AG passwords in plaintext
+state/
+
+# SSH keys if ever copied into the repo by mistake
+id_rsa
+id_rsa.pub
+*.pem
+
+# Bicep build output
+*.json.bak
+bicep/*.compiled.json
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp

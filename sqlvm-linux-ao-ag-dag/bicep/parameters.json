@@ -1,0 +1,22 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "adminUsername": {
+      "value": "azureuser"
+    },
+    "allowedSourceIps": {
+      "value": ["0.0.0.0/0"]
+    },
+    "sqlDataDiskSizeGB": {
+      "value": 256
+    },
+    "tags": {
+      "value": {
+        "project": "sqlvm-ag",
+        "purpose": "always-on-availability-group-cross-region",
+        "managedBy": "bicep"
+      }
+    }
+  }
+}

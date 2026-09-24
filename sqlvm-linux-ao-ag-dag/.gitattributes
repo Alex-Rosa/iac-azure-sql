@@ -1,0 +1,6 @@
+# Shell scripts run on RHEL Linux VMs via scp + ssh - they MUST have LF line endings.
+# CRLF breaks the shebang line ("/usr/bin/env bash^M: no such file or directory") and script
+# execution outright. Force LF here regardless of a cloning machine's core.autocrlf setting.
+*.sh text eol=lf
+# Everything else: let git normalize sensibly without forcing a specific line ending.
+* text=auto

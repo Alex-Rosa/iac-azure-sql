@@ -57,8 +57,8 @@ internet.
 ## Prerequisites
 
 - PowerShell 7+, Azure CLI signed in (`az login`).
-- Every stack deployed with `../../deploy.ps1` (credentials in `../../state/`), and one
-  Distributed AG per forwarder created with `../../deploy.ps1 -Action deploy-dag`, with AG1's
+- Every stack deployed with `../../sqlvm-linux-ag.ps1` (credentials in `../../state/`), and one
+  Distributed AG per forwarder created with `../../sqlvm-linux-ag.ps1 -Action deploy-dag`, with AG1's
   stack as the global primary each time.
 - Every node running, all AGs healthy, and every forwarder SYNCHRONIZING. `precheck` verifies
   this (and offers to start deallocated VMs).
@@ -170,7 +170,7 @@ Runs in westus2 only (node-2, plus the surviving forwarders' nodes):
    forwarder to be SYNCHRONIZING ([`14-dag-status.sql`](sql/14-dag-status.sql)).
    - A forwarder that received transactions from node-1 that node-2 never got can't resume.
      With `-ReseedForwarder`, the script rebuilds that forwarder's Distributed AG
-     (`deploy.ps1 -Action remove-dag` + `deploy-dag`), which re-seeds it from node-2. Without the
+     (`sqlvm-linux-ag.ps1 -Action remove-dag` + `deploy-dag`), which re-seeds it from node-2. Without the
      switch, it reports which forwarder is affected.
 7. Lifts the 1433 fence. node-1 is a readable secondary, and the primary stays in westus2.
 
@@ -278,7 +278,7 @@ The workload committed 321 ledger rows on node-1 at about 4.6 transactions/s bef
 About 100 s of the RTO is three `az vm run-command` round trips (~32 s each). The SQL work
 itself is sub-second. The script now repoints the Distributed AGs *after* the write test, which
 removes one round trip (~32 s) from the next run's RTO. An operator running `sqlcmd` directly
-(e.g. through Bastion) would be faster still. In a real incident, detection and the decision to
+(e.g. from a jump host in the VNet) would be faster still. In a real incident, detection and the decision to
 fail over usually dominate.
 
 ### Reinstate timeline (UTC)
@@ -318,7 +318,7 @@ confirmation prompt before node-1's stale databases were dropped; `-AutoApprove`
 ## Manual runbook (without the script)
 
 Every step is a standalone `sqlcmd` script with scripting variables. You can run them from a
-session on the node (Bastion, or the portal's Run Command):
+session on the node (a jump host in the VNet, or the portal's Run Command):
 
 ```bash
 # node-2 (westus2) - failover
@@ -391,7 +391,7 @@ real yet.
 3. **The control plane depends on the failed region.** The AG1 stack's resource group is homed
    in **eastus**. During a real eastus outage, Azure Resource Manager operations on that group
    (including `az vm run-command` against node-2) can be impaired. Keep a break-glass path that
-   doesn't depend on eastus, such as Bastion or a jump host in the westus2 VNet with the
+   doesn't depend on eastus, such as a jump host in the westus2 VNet with the
    [manual runbook](#manual-runbook-without-the-script). For production, home DR resources in a
    resource group in the DR region.
 4. **No automatic failover.** `CLUSTER_TYPE = NONE` needs a person to detect and decide, and

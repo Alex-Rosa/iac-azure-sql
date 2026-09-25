@@ -1,10 +1,11 @@
 # sqlvm-ag — Cross-Region SQL Server Always On AG on RHEL 9 (Bicep, suffix-driven)
 
-A 2-node SQL Server **Always On Availability Group** on **RHEL 9**, SQL Server installed from a
-**local RPM**, deployed by one interactive script. It asks for:
+2-node SQL Server **Always On Availability Groups** on **RHEL 9** (SQL Server installed from a
+**local RPM**), the **Distributed AGs** that link them, and failure **use cases**, all driven by
+one interactive script: **`sqlvm-linux-ag.ps1`**. It asks for:
 
-1. **Action**: `deploy` / `remove` (also `status`, `output`, `refresh-access`, `failover-to-secondary`,
-   and `deploy-dag` / `status-dag` / `remove-dag` to link two stacks with a Distributed AG)
+1. **What to do**, from a sectioned menu: **Deploy**, **Remove**, **Check**, **Operate**, or
+   **Use cases** (see [The menu](#the-menu))
 2. **Unique identifier** for the object names, for example `257672` (any 1–15 lowercase letters, digits or hyphens)
 3. **Primary node suffix**, for example `node-1`
 4. **Secondary node suffix**, for example `node-2`
@@ -34,7 +35,7 @@ remove either one without touching the other.
 ```
 
 - **`CLUSTER_TYPE = NONE`**: no Pacemaker, no WSFC. Failover is a deliberate manual action.
-- **Certificate-based endpoint authentication**: the nodes are not domain-joined. `deploy.ps1`
+- **Certificate-based endpoint authentication**: the nodes are not domain-joined. `sqlvm-linux-ag.ps1`
   exchanges the certificates between the nodes.
 - **Automatic seeding**: databases added on the primary are copied to the secondary by SQL Server.
 - **SQL Server Developer edition**: dev/test licence only. Change `MSSQL_PID` in
@@ -53,12 +54,11 @@ With prefix `sqlvm`, identifier `257672` (whatever you enter at the prompt) and 
 | NIC, NSG, public IP | `sqlvm-257672-node-1-nic`, `-nsg`, `-pip` |
 | VNet | `sqlvm-257672-node-1-vnet` (peering `to-node-2`) |
 | Disks | `sqlvm-257672-node-1-osdisk`, `sqlvm-257672-node-1-sqldata` |
-| Bastion (optional) | `sqlvm-257672-node-1-bastion`, `-bastion-pip` |
 | Availability Group | `agsqlvm-node-1` (override with `-AgName`) |
 | ARM deployment record | `sqlvm-257672-node-1-node-2` (subscription scope) |
 
 The identifier is 1–15 characters: lowercase letters, digits and hyphens. It can't start or
-end with a hyphen. Use the same identifier on every later run (`remove`, `status`, Bastion…) to
+end with a hyphen. Use the same identifier on every later run (`remove`, `status`, use cases…) to
 reach the same stack.
 
 A suffix is 1–20 characters: lowercase letters, digits and hyphens. It can't start or end with a
@@ -69,16 +69,13 @@ hyphen. The two suffixes must be different.
 ```
 sqlvm-linux-ao-ag-dag-01/
 ├── README.md
-├── deploy.ps1              # interactive entry point: deploy / remove / status / output / refresh-access / failover
-│                           #   + deploy-dag / status-dag / remove-dag (Distributed AG between two stacks)
-├── deploy-bastion.ps1      # optional Bastion: deploy / remove / tunnel-sql / ssh / status
+├── sqlvm-linux-ag.ps1      # entry point: menu with Deploy / Remove / Check / Operate / Use cases
 ├── bicep/
 │   ├── main.bicep          # subscription scope: resource group + resources module
 │   ├── resources.bicep     # the two nodes + VNet peering
 │   ├── node.bicep          # one node: VNet, NSG, PIP, NIC, data disk, VM (used twice)
-│   ├── bastion.bicep       # optional Bastion per node VNet
 │   └── parameters.json     # shared settings: admin user, allowedSourceIps, disk size, tags
-├── scripts/                # run on the VMs by deploy.ps1 (ag-*: over SSH; dag-*: through az vm run-command)
+├── scripts/                # run on the VMs by sqlvm-linux-ag.ps1 (ag-*: over SSH; dag-*: through az vm run-command)
 │   ├── install-sqlserver.sh
 │   ├── ag-01-endpoint.sh               # both nodes: master key, certificate, HADR endpoint
 │   ├── ag-02-trust-peer.sh             # both nodes: trust the peer's certificate
@@ -94,7 +91,7 @@ sqlvm-linux-ao-ag-dag-01/
 │   ├── dag-05-join.sh                  # forwarder primary: JOIN the distributed AG
 │   ├── dag-06-status.sh                # any node: local AG + distributed AG state
 │   └── dag-07-drop.sh                  # global primary / forwarder: DROP the distributed AG
-└── use-cases/              # failure-scenario drills and runbooks (uc-01, ...), each with its own README
+└── use-cases/              # failure drills and runbooks: uc-NN/uc-NN.ps1 + README, listed in the menu automatically
 ```
 
 Generated at runtime (git-ignored): `logs/` holds the transcripts, and `state/` holds the
@@ -108,8 +105,8 @@ credentials and a known_hosts file for each stack.
 3. **ssh / scp** (built into macOS, Linux and Windows 10/11).
 4. **SSH key pair** at `~/.ssh/id_rsa` (or pass `-SshKeyPath`):
    `ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""`
-5. **`Rhel9.zip`** with the SQL Server RPMs. It is not in git. `deploy.ps1` looks for it next to
-   `deploy.ps1`, then in `~/Downloads`. If it finds neither, it asks for the path. You can also
+5. **`Rhel9.zip`** with the SQL Server RPMs. It is not in git. `sqlvm-linux-ag.ps1` looks for it next to
+   `sqlvm-linux-ag.ps1`, then in `~/Downloads`. If it finds neither, it asks for the path. You can also
    pass `-RhelZipPath`. The zip needs at least `mssql-server-<version>-1.x86_64.rpm`; the
    `-ha-`, `-extensibility-` and `-polybase-` RPMs are ignored.
 6. An Azure subscription with `Contributor` access.
@@ -119,21 +116,26 @@ credentials and a known_hosts file for each stack.
 ```bash
 az login
 az account set --subscription "<name or id>"
-cd sqlvm-linux-ao-ag-dag
-pwsh ./deploy.ps1
+cd sqlvm-linux-ao-ag-dag-01
+pwsh ./sqlvm-linux-ag.ps1
 ```
 
-Sample session:
+Sample session (deploying a stack):
 
 ```
 What do you want to do?
-  1) deploy (default) - create or resume a stack
-  2) remove - delete a whole stack or one node
-  3) status - VM power state
-  4) output - connection info
-  5) refresh-access - allow your current IP on SSH/SQL
-  6) failover-to-secondary - force failover to the secondary
-Select a number or type the value: 1
+  1) Deploy     - stack (2-node AG), Distributed AG link
+  2) Remove     - stack or one node, Distributed AG link
+  3) Check      - stack status, connection info, Distributed AG status
+  4) Operate    - refresh SSH/SQL access, failover to secondary
+  5) Use cases  - failure drills and runbooks (1 available)
+Select a section: 1
+
+Deploy
+  1) deploy                 Stack - 2-node AG in the regions you choose (create or resume)
+  2) deploy-dag             Distributed AG - link two stacks (global primary -> forwarder)
+  0) back
+Select an option: 1
 Unique identifier for the object names (e.g. 257672): 257672
 Primary node objects suffix (e.g. node-1) [node-1]: node-1
 Secondary node objects suffix (e.g. node-2) [node-2]: node-2
@@ -164,12 +166,12 @@ Who may reach SSH (22) and SQL Server (1433) on the node public IPs?
 Every prompt can also be passed as a parameter. Nothing is asked for a parameter you pass:
 
 ```powershell
-./deploy.ps1 -Action deploy -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 `
+./sqlvm-linux-ag.ps1 -Action deploy -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 `
              -PrimaryLocation eastus -SecondaryLocation westus2 -VmSize Standard_D4as_v7 -AllowedSourceIps auto
 
-./deploy.ps1 -Action remove -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -RemoveScope stack
-./deploy.ps1 -Action remove -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -RemoveScope secondary
-./deploy.ps1 -Action remove -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -RemoveScope stack -AutoApprove   # no confirmation
+./sqlvm-linux-ag.ps1 -Action remove -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -RemoveScope stack
+./sqlvm-linux-ag.ps1 -Action remove -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -RemoveScope secondary
+./sqlvm-linux-ag.ps1 -Action remove -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -RemoveScope stack -AutoApprove   # no confirmation
 ```
 
 A full deploy takes about 15–20 minutes. The credentials are printed before any remote work starts.
@@ -204,6 +206,35 @@ The *vCPUs free* column shows the smallest free quota across the regions. If no 
 - **Rebuilt secondary:** always uses the primary's current size, so the redeploy doesn't resize the
   primary. The size is checked in the region you give for the secondary.
 
+## The menu
+
+Run `pwsh ./sqlvm-linux-ag.ps1` with no `-Action` / `-UseCase`. Pick a section, then an option
+(`0` goes back):
+
+| Section | Options (`-Action` name) |
+|---|---|
+| **1) Deploy** | Stack (`deploy`), Distributed AG link (`deploy-dag`) |
+| **2) Remove** | Stack or one node (`remove`), Distributed AG link (`remove-dag`) |
+| **3) Check** | Stack status (`status`), connection info (`output`), Distributed AG status (`status-dag`) |
+| **4) Operate** | Refresh SSH/SQL access (`refresh-access`), failover to secondary (`failover-to-secondary`) |
+| **5) Use cases** | Every `use-cases/uc-NN/` folder with a `uc-NN.ps1`, titled from its README's first line |
+
+**Use cases.** The identifier is asked once here and passed on. The use case then asks for
+everything else (its action, node suffixes, forwarders) with its own scenario-specific prompts.
+`-PrimaryNodeSuffix`, `-SecondaryNodeSuffix`, `-Prefix`, `-AgName` and `-AutoApprove` are passed
+through when you give them on the command line. To run one directly:
+
+```powershell
+./sqlvm-linux-ag.ps1 -UseCase uc-01 -UseCaseAction status -Identifier 257672   # or -UseCase 1
+./use-cases/uc-01/uc-01.ps1 -Action status -Identifier 257672 ...              # same thing, called directly
+```
+
+A new use case appears in the menu as soon as its folder exists: `use-cases/uc-02/uc-02.ps1`,
+plus a `README.md` whose first line is its title. `uc-02.ps1` should accept `-Action` and
+`-Identifier` (and `-AutoApprove` if it confirms anything).
+
+**Scripting.** Every option is also an `-Action`, so nothing is asked for a value you pass.
+
 ## Actions
 
 | Action | What it does |
@@ -221,10 +252,10 @@ The *vCPUs free* column shows the smallest free quota across the regions. If no 
 ## Removing a single node
 
 ```powershell
-./deploy.ps1 -Action remove -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -RemoveScope secondary
+./sqlvm-linux-ag.ps1 -Action remove -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -RemoveScope secondary
 ```
 
-This deletes the node's VM, NIC, public IP, NSG, OS and data disks, its Bastion (if any) and its
+This deletes the node's VM, NIC, public IP, NSG, OS and data disks, and its
 VNet. It also deletes the other VNet's peering to it. The other node is not touched. Before
 deleting, the script connects to the node that stays, using the saved SA password:
 
@@ -264,7 +295,7 @@ the value in `parameters.json`. On an existing stack, the choice is applied stra
 rules. If your IP changes later (home ISP, VPN), run:
 
 ```powershell
-./deploy.ps1 -Action refresh-access -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2
+./sqlvm-linux-ag.ps1 -Action refresh-access -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2
 ```
 
 ## VNet address spaces
@@ -298,9 +329,9 @@ stack's AG (the **forwarder**), which then passes them on to its own secondary:
 ```
 
 ```powershell
-./deploy.ps1 -Action deploy-dag -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 `
+./sqlvm-linux-ag.ps1 -Action deploy-dag -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 `
              -DagForwarderPrimarySuffix node-3 -DagForwarderSecondarySuffix node-4
-./deploy.ps1 -Action status-dag -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 `
+./sqlvm-linux-ag.ps1 -Action status-dag -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 `
              -DagForwarderPrimarySuffix node-3 -DagForwarderSecondarySuffix node-4
 ```
 
@@ -351,9 +382,9 @@ place.
 forwarder AG. Run `deploy-dag` once per forwarder stack with the same global primary suffixes:
 
 ```powershell
-./deploy.ps1 -Action deploy-dag -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 `
+./sqlvm-linux-ag.ps1 -Action deploy-dag -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 `
              -DagForwarderPrimarySuffix node-3 -DagForwarderSecondarySuffix node-4   # dagsqlvm-node-1-node-3
-./deploy.ps1 -Action deploy-dag -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 `
+./sqlvm-linux-ag.ps1 -Action deploy-dag -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 `
              -DagForwarderPrimarySuffix node-5 -DagForwarderSecondarySuffix node-6   # dagsqlvm-node-1-node-5
 ```
 
@@ -372,7 +403,7 @@ check `status-dag` afterwards. Re-run `deploy-dag` if any cross-stack peering or
 | `-Prefix` | `sqlvm` | Part of every name |
 | `-VmSize` | asked (list of sizes available in both regions) | Skips the list; still checked for restrictions and quota. Existing nodes keep their size |
 | `-RemoveScope` | asked | `stack`, `primary` or `secondary` (remove only) |
-| `-PrimaryVnetCidr` / `-SecondaryVnetCidr` | auto (first free `10.<n>.0.0/16`) | /22 or larger. VM subnet = 2nd /24, Bastion = 9th /26 (e.g. `10.30.1.0/24`, `10.30.2.0/26`) |
+| `-PrimaryVnetCidr` / `-SecondaryVnetCidr` | auto (first free `10.<n>.0.0/16`) | /22 or larger. VM subnet = 2nd /24 (e.g. `10.30.1.0/24`) |
 | `-AllowedSourceIps` | asked | `auto`, IPs or CIDRs for SSH 22 and SQL 1433 |
 | `-AgName` / `-DemoDbName` | `agsqlvm-<primary suffix>` / `AGDemoDB` | |
 | `-SshKeyPath` / `-RhelZipPath` | `~/.ssh/id_rsa` / auto-detected | |
@@ -419,7 +450,7 @@ is **becoming** primary:
 ALTER AVAILABILITY GROUP [agsqlvm-node-1] FORCE_FAILOVER_ALLOW_DATA_LOSS;
 ```
 
-`./deploy.ps1 -Action failover-to-secondary` runs this command on the secondary. To fail back,
+`./sqlvm-linux-ag.ps1 -Action failover-to-secondary` runs this command on the secondary. To fail back,
 run the same statement on the original primary. The pair is asynchronous in both directions, so
 data loss is possible either way.
 
@@ -431,35 +462,10 @@ ALTER DATABASE [AGDemoDB] SET HADR RESUME;
 ALTER DATABASE [WideWorldImporters] SET HADR RESUME;
 ```
 
-## Optional: Azure Bastion
-
-Use Bastion when direct SSH or SQL access fails because your source IP changes (VPN, corporate
-egress). It deploys one Standard-SKU Bastion into each node's VNet. The script reads the regions
-and address spaces from the live VNets, so the only inputs are the action and the suffixes.
-
-```powershell
-./deploy-bastion.ps1                                   # interactive
-./deploy-bastion.ps1 -Action deploy -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2
-
-# SSMS tunnels (leave each window open); connect SSMS to 127.0.0.1,11433 / 127.0.0.1,12433
-./deploy-bastion.ps1 -Action tunnel-sql -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -Node primary   -LocalPort 11433
-./deploy-bastion.ps1 -Action tunnel-sql -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -Node secondary -LocalPort 12433
-
-# SSH through Bastion
-./deploy-bastion.ps1 -Action ssh -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -Node primary
-
-# Remove only the Bastion hosts, their PIPs and subnets (VMs/AG untouched)
-./deploy-bastion.ps1 -Action remove -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2
-```
-
-Standard Bastion bills continuously while it is deployed, and this setup runs two of them.
-`deploy.ps1 -Action remove` also deletes the Bastion hosts along with the resource group.
-
 ## Troubleshooting
 
 - **SSH timeouts while waiting for the nodes.** Your public IP is almost certainly not in the
-  NSG allow-list. Run `./deploy.ps1 -Action refresh-access ...`, then re-run `deploy`. If your
-  IP keeps changing, use Bastion.
+  NSG allow-list. Run `./sqlvm-linux-ag.ps1 -Action refresh-access ...`, then re-run `deploy`.
 - **A deploy fails partway.** Run the same command again. It reuses the saved credentials and
   existing VMs, and resumes from the step that failed.
 - **Only one VM exists.** If it's the primary, `deploy` rebuilds the secondary and adds it back
@@ -467,7 +473,7 @@ Standard Bastion bills continuously while it is deployed, and this setup runs tw
 - **SSH blocked by subscription policy.** In this subscription, an Azure policy removes the
   `allow-ssh` NSG rules and attaches subnet NSGs that deny inbound internet traffic. The
   `deploy` action's SQL phases (`install-sqlserver.sh`, `ag-*.sh`) use SSH/SCP and fail while
-  that policy applies. Use Bastion, or run the phases through `az vm run-command`. The DAG
+  that policy applies. Run the phases through `az vm run-command` instead. The DAG
   actions and the use-case scripts already use run-command.
 - To debug a single phase, copy the `scripts/ag-0N-*.sh` / `dag-0N-*.sh` file to the node (or
   use `az vm run-command invoke`) and run it with the arguments shown in its header comment.
@@ -475,4 +481,4 @@ Standard Bastion bills continuously while it is deployed, and this setup runs tw
 ## Cost (per stack, PAYG, approximate)
 
 Two VMs of the size you pick (e.g. `Standard_D4as_v7`, 4 vCPUs each), 2 × 128 GB + 2 × 256 GB Premium SSD, two Standard public IPs, and global
-peering egress billed per GB. Stop costs with `./deploy.ps1 -Action remove`.
+peering egress billed per GB. Stop costs with `./sqlvm-linux-ag.ps1 -Action remove`.

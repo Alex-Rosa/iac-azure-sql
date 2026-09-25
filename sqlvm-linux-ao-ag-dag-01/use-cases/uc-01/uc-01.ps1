@@ -4,11 +4,11 @@
     UC-01 - Region failure of the PRIMARY node: fail every transaction over to the alternate region.
 
 .DESCRIPTION
-    Drill + runbook automation for the topology built by ../../deploy.ps1:
+    Drill + runbook automation for the topology built by ../../sqlvm-linux-ag.ps1:
       - AG1: primary node in region A, ASYNC secondary (the DR node) in region B. AG1 is the global
         primary of one distributed AG per forwarder stack.
       - Forwarder AGs (optional, any number): one stack each, linked to AG1 with
-        deploy.ps1 -Action deploy-dag. They can be in region A (they fail with it) or elsewhere
+        sqlvm-linux-ag.ps1 -Action deploy-dag. They can be in region A (they fail with it) or elsewhere
         (they survive and must follow AG1 to its new primary).
     All AGs use CLUSTER_TYPE = NONE (manual failover, no listener).
 
@@ -47,7 +47,7 @@ param(
     [ValidateSet('', 'status', 'precheck', 'start-workload', 'simulate-failure', 'failover', 'verify', 'drill', 'reinstate', 'failback')]
     [string]$Action = '',
 
-    # Same values used with ../../deploy.ps1.
+    # Same values used with ../../sqlvm-linux-ag.ps1.
     [Alias('Environment')]
     [string]$Identifier          = '',
     [string]$PrimaryNodeSuffix   = '',   # AG1 node in the region that FAILS
@@ -386,12 +386,12 @@ function Wait-ForwardersSync {
 # CURRENT global primary. Only valid while every node of both stacks is up and AG1 is healthy.
 function Invoke-ReseedForwarder {
     param($F)
-    Write-Host "  Re-seeding $($F.Ag): rebuilding $($F.Dag) with ../../deploy.ps1 (remove-dag, deploy-dag) ..." -ForegroundColor Yellow
+    Write-Host "  Re-seeding $($F.Ag): rebuilding $($F.Dag) with ../../sqlvm-linux-ag.ps1 (remove-dag, deploy-dag) ..." -ForegroundColor Yellow
     $deployArgs = @('-Identifier', $Identifier, '-PrimaryNodeSuffix', $PrimaryNodeSuffix, '-SecondaryNodeSuffix', $SecondaryNodeSuffix,
                     '-DagForwarderPrimarySuffix', $F.PrimarySuffix, '-DagForwarderSecondarySuffix', $F.SecondarySuffix,
                     '-DagName', $F.Dag, '-AutoApprove')
-    & pwsh -NoProfile -File (Join-Path $ProjectDir 'deploy.ps1') -Action remove-dag @deployArgs
-    & pwsh -NoProfile -File (Join-Path $ProjectDir 'deploy.ps1') -Action deploy-dag @deployArgs
+    & pwsh -NoProfile -File (Join-Path $ProjectDir 'sqlvm-linux-ag.ps1') -Action remove-dag @deployArgs
+    & pwsh -NoProfile -File (Join-Path $ProjectDir 'sqlvm-linux-ag.ps1') -Action deploy-dag @deployArgs
     if ($LASTEXITCODE -ne 0) { Write-Error "deploy-dag failed while re-seeding $($F.Ag)."; exit 1 }
 }
 

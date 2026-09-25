@@ -17,7 +17,7 @@ if [ ! -f "$PEER_CERT" ]; then
   exit 1
 fi
 
-# A peer that was removed and rebuilt (deploy.ps1 -Action remove -RemoveScope secondary, then
+# A peer that was removed and rebuilt (sqlvm-linux-ag.ps1 -Action remove -RemoveScope secondary, then
 # deploy) comes back with a brand-new certificate under the same replica name. The IF NOT EXISTS
 # below would keep trusting the old one and the endpoint handshake would fail, so drop the
 # stored certificate when its SHA-1 thumbprint no longer matches the uploaded file.

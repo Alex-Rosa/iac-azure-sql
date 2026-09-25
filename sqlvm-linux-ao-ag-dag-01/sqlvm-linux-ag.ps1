@@ -1,20 +1,25 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    Deploys or removes a 2-node SQL Server Always On AG (RHEL 9, CLUSTER_TYPE = NONE) whose
-    Azure objects are named by a per-node suffix, in regions you choose.
+    SQL Server on Linux Always On lab: deploy, remove, check and operate 2-node AG stacks (RHEL 9,
+    CLUSTER_TYPE = NONE) and the Distributed AGs that link them, and run the failure use cases.
 
 .DESCRIPTION
-    Anything not passed on the command line is asked for interactively:
-      1. Action                 - deploy | remove | status | output | refresh-access | failover-to-secondary
-      2. Unique identifier      - part of every object name, e.g. 257672
-      3. Primary node suffix    - e.g. node-1
-      4. Secondary node suffix  - e.g. node-2
-      5. Primary region         - deploy only (skipped when the node already exists)
-      6. Secondary region       - deploy only (skipped when the node already exists)
-      7. VM size                - new stack only: pick from the sizes available in the chosen regions
-      8. SSH/SQL access         - deploy only: your current public IP, parameters.json, or a CIDR list
-      9. Remove scope           - remove only: whole stack, primary node only, secondary node only
+    Run it without -Action / -UseCase for the menu:
+      1) Deploy     - stack (2-node AG), Distributed AG link
+      2) Remove     - stack or one node, Distributed AG link
+      3) Check      - stack status, connection info, Distributed AG status
+      4) Operate    - refresh SSH/SQL access, failover to secondary
+      5) Use cases  - failure drills and runbooks, discovered from use-cases/uc-NN/uc-NN.ps1
+
+    Then anything not passed on the command line is asked for:
+      Unique identifier      - part of every object name, e.g. 257672 (asked once, also passed to use cases)
+      Primary node suffix    - e.g. node-1
+      Secondary node suffix  - e.g. node-2
+      Regions / VM size      - deploy of a new stack only
+      SSH/SQL access         - deploy only: your current public IP, parameters.json, or a CIDR list
+      Remove scope           - remove only: whole stack, primary node only, secondary node only
+      Forwarder suffixes     - Distributed AG actions only
 
     Object naming (prefix defaults to 'sqlvm'; <id> is the unique identifier you're asked for):
       Resource group : <prefix>-<id>-<primarySuffix>-<secondarySuffix>-rg
@@ -27,23 +32,32 @@
     for a Distributed AG).
 
 .EXAMPLE
-    ./deploy.ps1
-    # fully interactive
+    ./sqlvm-linux-ag.ps1
+    # menu
 
 .EXAMPLE
-    ./deploy.ps1 -Action deploy -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -PrimaryLocation eastus -SecondaryLocation westus2 -AllowedSourceIps auto
+    ./sqlvm-linux-ag.ps1 -Action deploy -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -PrimaryLocation eastus -SecondaryLocation westus2 -AllowedSourceIps auto
 
 .EXAMPLE
-    ./deploy.ps1 -Action deploy-dag -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -DagForwarderPrimarySuffix node-3 -DagForwarderSecondarySuffix node-4
+    ./sqlvm-linux-ag.ps1 -Action deploy-dag -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -DagForwarderPrimarySuffix node-3 -DagForwarderSecondarySuffix node-4
     # Distributed AG: AG of node-1/node-2 = global primary, AG of node-3/node-4 = forwarder
 
 .EXAMPLE
-    ./deploy.ps1 -Action remove -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -RemoveScope secondary
+    ./sqlvm-linux-ag.ps1 -Action remove -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -RemoveScope secondary
     # removes only node-2's objects; a later -Action deploy recreates it and re-adds it to the AG
+
+.EXAMPLE
+    ./sqlvm-linux-ag.ps1 -UseCase uc-01 -UseCaseAction status -Identifier 257672
+    # runs use-cases/uc-01/uc-01.ps1 -Action status (it asks for its own remaining inputs)
 #>
 param(
     [ValidateSet('', 'deploy', 'remove', 'status', 'output', 'refresh-access', 'failover-to-secondary', 'deploy-dag', 'status-dag', 'remove-dag')]
     [string]$Action = '',
+
+    # Use cases: use-cases/<id>/<id>.ps1, e.g. -UseCase uc-01 (or 1). -UseCaseAction is passed to it
+    # as its -Action; anything it still needs, it asks for itself.
+    [string]$UseCase       = '',
+    [string]$UseCaseAction = '',
 
     [string]$PrimaryNodeSuffix   = '',
     [string]$SecondaryNodeSuffix = '',
@@ -91,6 +105,7 @@ param(
 )
 
 Set-StrictMode -Version Latest
+$ScriptBoundParameters = $PSBoundParameters
 # NOT 'Stop': every az/ssh/scp call below is checked manually via $LASTEXITCODE. Under 'Stop',
 # any benign stderr line a native exe writes (e.g. an az CLI warning) becomes a terminating
 # exception before the script's own error handling can run.
@@ -382,8 +397,7 @@ function Wait-ForSSH {
 SSH did not become available on $IP within $Timeout seconds.
 Most common cause: the NSG allow-list doesn't include the public IP this machine egresses from.
 Fix it without redeploying, then re-run deploy:
-  ./deploy.ps1 -Action refresh-access -Identifier $Identifier -PrimaryNodeSuffix $PrimaryNodeSuffix -SecondaryNodeSuffix $SecondaryNodeSuffix
-Or use deploy-bastion.ps1 if your egress IP keeps changing.
+  ./sqlvm-linux-ag.ps1 -Action refresh-access -Identifier $Identifier -PrimaryNodeSuffix $PrimaryNodeSuffix -SecondaryNodeSuffix $SecondaryNodeSuffix
 "@
     return $false
 }
@@ -656,7 +670,7 @@ function Read-Region {
 }
 
 # ── Single-node removal ────────────────────────────────────────────────────────
-# Deletes one node's objects (VM, NIC, PIP, NSG, disks, its Bastion, its VNet and the peer's
+# Deletes one node's objects (VM, NIC, PIP, NSG, disks, its VNet and the peer's
 # peering to it) and, when the kept node is the AG primary, first removes the node's replica
 # from the AG so the kept node keeps running cleanly. deploy recreates the node later.
 function Remove-SingleNode {
@@ -675,8 +689,6 @@ function Remove-SingleNode {
         @{ Name = "$base-nsg";         Kind = 'nsg' },
         @{ Name = "$base-osdisk";      Kind = 'disk' },
         @{ Name = "$base-sqldata";     Kind = 'disk' },
-        @{ Name = "$base-bastion";     Kind = 'bastion' },
-        @{ Name = "$base-bastion-pip"; Kind = 'public-ip' },
         @{ Name = "$base-vnet";        Kind = 'vnet' }
     ) | Where-Object { $present -contains $_.Name })
 
@@ -713,7 +725,7 @@ function Remove-SingleNode {
     }
     if ($Role -eq 'primary') {
         Write-Host ''
-        Write-Host 'Note: deploy.ps1 can rebuild a removed SECONDARY node in place. A removed primary node' -ForegroundColor Yellow
+        Write-Host 'Note: sqlvm-linux-ag.ps1 can rebuild a removed SECONDARY node in place. A removed primary node' -ForegroundColor Yellow
         Write-Host "can't be rebuilt into this stack - the AG then lives only on '$NamePrefix-$keptSuffix'." -ForegroundColor Yellow
     }
 
@@ -734,7 +746,6 @@ function Remove-SingleNode {
             'public-ip' { az network public-ip delete -g $ResourceGroup -n $t.Name --output none }
             'nsg'       { az network nsg delete -g $ResourceGroup -n $t.Name --output none }
             'disk'      { az disk delete -g $ResourceGroup -n $t.Name --yes --output none }
-            'bastion'   { az network bastion delete -g $ResourceGroup -n $t.Name --output none }
             'vnet'      {
                 # Peering on the kept VNet would otherwise sit in 'Disconnected' state and block re-peering.
                 az network vnet peering delete -g $ResourceGroup --vnet-name $keptVnet -n "to-$suffix" --output none 2>$null
@@ -748,7 +759,7 @@ function Remove-SingleNode {
     Write-Host "Removed the $Role node '$base'. '$NamePrefix-$keptSuffix' is untouched." -ForegroundColor Green
     if ($Role -eq 'secondary') {
         Write-Host "Rebuild it and re-add it to the AG with:"
-        Write-Host "  ./deploy.ps1 -Action deploy -Identifier $Identifier -PrimaryNodeSuffix $PrimaryNodeSuffix -SecondaryNodeSuffix $SecondaryNodeSuffix"
+        Write-Host "  ./sqlvm-linux-ag.ps1 -Action deploy -Identifier $Identifier -PrimaryNodeSuffix $PrimaryNodeSuffix -SecondaryNodeSuffix $SecondaryNodeSuffix"
     }
 }
 
@@ -1179,6 +1190,116 @@ function Invoke-RemoveDag {
     }
 }
 
+
+# ── Menu (sections) + use cases ────────────────────────────────────────────────
+# Stack / Distributed AG actions grouped by section. Use cases are discovered, not listed here.
+$MenuSections = [ordered]@{
+    'Deploy'  = @(
+        @('deploy',     'Stack - 2-node AG in the regions you choose (create or resume)'),
+        @('deploy-dag', 'Distributed AG - link two stacks (global primary -> forwarder)'))
+    'Remove'  = @(
+        @('remove',     'Stack - the whole stack, or only one of its nodes'),
+        @('remove-dag', 'Distributed AG - drop the link (both AGs keep running)'))
+    'Check'   = @(
+        @('status',     'Stack - VM power state'),
+        @('output',     'Stack - connection info (SSH / SSMS)'),
+        @('status-dag', 'Distributed AG - AG + distributed AG state of both stacks'))
+    'Operate' = @(
+        @('refresh-access',        'Allow your current public IP on SSH (22) / SQL (1433)'),
+        @('failover-to-secondary', "Force failover of a stack's AG to its secondary"))
+}
+
+# Every use-cases/uc-NN/ folder that has a uc-NN.ps1; the title is the first line of its README.
+function Get-UseCases {
+    $root = Join-Path $ScriptDir 'use-cases'
+    if (-not (Test-Path $root)) { return @() }
+    return @(Get-ChildItem $root -Directory | Where-Object { $_.Name -match '^uc-\d+$' } | Sort-Object Name | ForEach-Object {
+        $script = Join-Path $_.FullName "$($_.Name).ps1"
+        if (-not (Test-Path $script)) { return }
+        $readme = Join-Path $_.FullName 'README.md'
+        $title  = if (Test-Path $readme) { ((Get-Content $readme -TotalCount 1) -replace '^#\s*', '').Trim() } else { $_.Name.ToUpper() }
+        [pscustomobject]@{ Id = $_.Name; Script = $script; Title = $title }
+    })
+}
+
+# Accepts 'uc-01', 'UC-01', '01' or '1'.
+function Resolve-UseCase {
+    param([string]$Name)
+    $useCases = Get-UseCases
+    $n = $Name.Trim().ToLower()
+    if ($n -match '^\d+$') { $n = 'uc-{0:D2}' -f [int]$n }
+    $uc = $useCases | Where-Object { $_.Id -eq $n } | Select-Object -First 1
+    if (-not $uc) {
+        Write-Error "Use case '$Name' not found. Available: $(($useCases | ForEach-Object { $_.Id }) -join ', ')"
+        exit 1
+    }
+    return $uc
+}
+
+# Two-level menu: section, then action (or use case). Returns @{ Action = ...; UseCase = ... }.
+function Read-MenuAction {
+    $useCases = Get-UseCases
+    $sections = @($MenuSections.Keys) + @('Use cases')
+    $summaries = @(
+        'stack (2-node AG), Distributed AG link',
+        'stack or one node, Distributed AG link',
+        'stack status, connection info, Distributed AG status',
+        'refresh SSH/SQL access, failover to secondary',
+        "failure drills and runbooks ($($useCases.Count) available)")
+    while ($true) {
+        Write-Host ''
+        Write-Host 'What do you want to do?' -ForegroundColor Cyan
+        for ($i = 0; $i -lt $sections.Count; $i++) { Write-Host ("  {0}) {1,-10} - {2}" -f ($i + 1), $sections[$i], $summaries[$i]) }
+        $answer = (Read-Line 'Select a section').ToLower()
+        $section = $null
+        if ($answer -match '^\d+$' -and [int]$answer -ge 1 -and [int]$answer -le $sections.Count) { $section = $sections[[int]$answer - 1] }
+        else { $section = $sections | Where-Object { $_.ToLower() -eq $answer } | Select-Object -First 1 }
+        if (-not $section) { Write-Host "  '$answer' is not a section." -ForegroundColor Yellow; continue }
+
+        if ($section -eq 'Use cases') {
+            if ($useCases.Count -eq 0) { Write-Host '  No use cases found under use-cases/.' -ForegroundColor Yellow; continue }
+            $labels = @($useCases | ForEach-Object { $_.Title })
+        } else {
+            $labels = @($MenuSections[$section] | ForEach-Object { "{0,-22} {1}" -f $_[0], $_[1] })
+        }
+        Write-Host ''
+        Write-Host $section -ForegroundColor Cyan
+        for ($i = 0; $i -lt $labels.Count; $i++) { Write-Host ("  {0}) {1}" -f ($i + 1), $labels[$i]) }
+        Write-Host '  0) back'
+        $answer = (Read-Line 'Select an option').ToLower()
+        if ($answer -eq '0' -or $answer -eq 'back') { continue }
+        if ($answer -notmatch '^\d+$' -or [int]$answer -lt 1 -or [int]$answer -gt $labels.Count) {
+            Write-Host "  '$answer' is not an option." -ForegroundColor Yellow; continue
+        }
+        $index = [int]$answer - 1
+        if ($section -eq 'Use cases') { return @{ Action = ''; UseCase = $useCases[$index] } }
+        return @{ Action = $MenuSections[$section][$index][0]; UseCase = $null }
+    }
+}
+
+# Runs a use case in its own pwsh process, passing only what it declares and what was already
+# answered here (identifier) or passed explicitly on this command line. It asks for the rest with
+# its own, scenario-specific prompts.
+function Invoke-UseCase {
+    param($Uc)
+    $declared = (Get-Command $Uc.Script).Parameters.Keys
+    $ucArgs = @()
+    if ($declared -contains 'Identifier') { $ucArgs += @('-Identifier', $Identifier) }
+    if ($UseCaseAction -and $declared -contains 'Action') { $ucArgs += @('-Action', $UseCaseAction) }
+    foreach ($name in @('Prefix', 'PrimaryNodeSuffix', 'SecondaryNodeSuffix', 'AgName')) {
+        if ($ScriptBoundParameters.ContainsKey($name) -and $declared -contains $name) { $ucArgs += @("-$name", $ScriptBoundParameters[$name]) }
+    }
+    if ($AutoApprove -and $declared -contains 'AutoApprove') { $ucArgs += '-AutoApprove' }
+    Write-Host ''
+    Write-Host "=== $($Uc.Title) ===" -ForegroundColor Cyan
+    Write-Host "  $($Uc.Script)" -ForegroundColor DarkGray
+    # Start-Process -NoNewWindow: the use case talks to this console directly (its prompts must not
+    # go through a PowerShell pipeline, which would hold back prompt text until a newline).
+    $argList = @('-NoProfile', '-File', "`"$($Uc.Script)`"") + $ucArgs
+    $proc = Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList $argList -NoNewWindow -Wait -PassThru
+    return $proc.ExitCode
+}
+
 # ── Preconditions + inputs ──────────────────────────────────────────────────────
 Assert-Tool 'az'
 
@@ -1191,12 +1312,15 @@ if (-not $account) {
 }
 Write-Host "Using Azure subscription: $($account.name) ($($account.id))"
 
-if (-not $Action) {
-    $Action = Read-Choice -Prompt 'What do you want to do?' -Default 'deploy' `
-        -Options @('deploy', 'remove', 'status', 'output', 'refresh-access', 'failover-to-secondary', 'deploy-dag', 'status-dag', 'remove-dag') `
-        -Descriptions @('create or resume a stack', 'delete a whole stack or one node', 'VM power state',
-                        'connection info', 'allow your current IP on SSH/SQL', 'force failover to the secondary',
-                        'link two stacks with a Distributed AG', 'Distributed AG health', 'drop the Distributed AG')
+if ($UseCase -and $Action) { Write-Error 'Pass either -Action or -UseCase, not both.'; exit 1 }
+if ($UseCaseAction -and -not $UseCase) { Write-Error '-UseCaseAction needs -UseCase.'; exit 1 }
+$SelectedUseCase = $null
+if ($UseCase) {
+    $SelectedUseCase = Resolve-UseCase $UseCase
+} elseif (-not $Action) {
+    $pick = Read-MenuAction
+    $Action = $pick.Action
+    $SelectedUseCase = $pick.UseCase
 }
 
 $idHint = 'Use 1-15 lowercase letters, digits or hyphens (no leading/trailing hyphen), e.g. 257672.'
@@ -1205,6 +1329,10 @@ if (-not $Identifier) {
 }
 $Identifier = $Identifier.ToLower()
 if (-not (Test-Identifier $Identifier)) { Write-Error "Invalid identifier '$Identifier'. $idHint"; exit 1 }
+
+if ($SelectedUseCase) {
+    exit (Invoke-UseCase $SelectedUseCase)
+}
 
 $suffixHint = 'Use 1-20 lowercase letters, digits or hyphens, e.g. node-1.'
 $IsDagAction = $Action -in @('deploy-dag', 'status-dag', 'remove-dag')
@@ -1309,11 +1437,11 @@ if ($Action -eq 'deploy') {
 The primary node '$PrimaryVmName' is missing but the secondary '$SecondaryVmName' exists.
 A primary node can't be rebuilt into an existing AG in place. Options:
   - keep '$SecondaryVmName' as a standalone server (fail over to it if you haven't), or
-  - start over: ./deploy.ps1 -Action remove -RemoveScope stack -Identifier $Identifier -PrimaryNodeSuffix $PrimaryNodeSuffix -SecondaryNodeSuffix $SecondaryNodeSuffix
+  - start over: ./sqlvm-linux-ag.ps1 -Action remove -RemoveScope stack -Identifier $Identifier -PrimaryNodeSuffix $PrimaryNodeSuffix -SecondaryNodeSuffix $SecondaryNodeSuffix
 "@
         exit 1
     } elseif ($pri) {
-        # Secondary was removed (./deploy.ps1 -Action remove -RemoveScope secondary): rebuild it
+        # Secondary was removed (./sqlvm-linux-ag.ps1 -Action remove -RemoveScope secondary): rebuild it
         # and re-add it to the AG that lives on the primary.
         $RebuildSecondary = $true
         $PrimaryLocation  = $pri.location
@@ -1510,7 +1638,7 @@ A primary node can't be rebuilt into an existing AG in place. Options:
         }
         while (-not $RhelZipPath -or -not (Test-Path $RhelZipPath)) {
             if ($AutoApprove) {
-                Write-Error 'Rhel9.zip not found next to deploy.ps1 or in ~/Downloads - pass -RhelZipPath.'
+                Write-Error 'Rhel9.zip not found next to sqlvm-linux-ag.ps1 or in ~/Downloads - pass -RhelZipPath.'
                 exit 1
             }
             $RhelZipPath = (Read-Line 'Path to Rhel9.zip (SQL Server RPMs)').Trim('"').Trim("'")
@@ -1628,7 +1756,7 @@ elseif ($Action -eq 'remove') {
         Write-Host "Objects in $ResourceGroup that will be PERMANENTLY deleted:" -ForegroundColor Yellow
         az resource list --resource-group $ResourceGroup --query '[].{name:name, type:type, location:location}' -o table
         Write-Host ''
-        Write-Host 'Both VMs, their disks, networking, Bastion (if any) and all AG data will be gone.' -ForegroundColor Yellow
+        Write-Host 'Both VMs, their disks, networking and all AG data will be gone.' -ForegroundColor Yellow
         Confirm-Yes "Type 'yes' to delete '$ResourceGroup'"
 
         Write-Host "Deleting $ResourceGroup (typically 5-10 minutes) ..."

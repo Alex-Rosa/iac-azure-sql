@@ -5,15 +5,15 @@
 -- sqlcmd -v DagName="dagsqlvm-node-1-node-3" MemberAg="agsqlvm-node-1" ListenerUrl="tcp://10.20.1.4:5022" -i 13-dag-repoint.sql
 SET NOCOUNT ON;
 IF NOT EXISTS (SELECT 1 FROM sys.availability_groups WHERE name = N'$(DagName)' AND is_distributed = 1)
-    SELECT 'DAG_REPOINTED=0 (no distributed AG $(DagName) on ' + @@SERVERNAME + ')';
+    SELECT 'DAG_REPOINTED=$(DagName)|none (not on ' + @@SERVERNAME + ')';
 ELSE IF EXISTS (
     SELECT 1 FROM sys.availability_replicas ar
     JOIN sys.availability_groups ag ON ag.group_id = ar.group_id
     WHERE ag.name = N'$(DagName)' AND ar.replica_server_name = N'$(MemberAg)' AND ar.endpoint_url = N'$(ListenerUrl)')
-    SELECT 'DAG_REPOINTED=0 (already $(ListenerUrl) on ' + @@SERVERNAME + ')';
+    SELECT 'DAG_REPOINTED=$(DagName)|already $(ListenerUrl)|' + @@SERVERNAME;
 ELSE
 BEGIN
     ALTER AVAILABILITY GROUP [$(DagName)]
         MODIFY AVAILABILITY GROUP ON N'$(MemberAg)' WITH (LISTENER_URL = N'$(ListenerUrl)');
-    SELECT 'DAG_REPOINTED=$(MemberAg)|$(ListenerUrl)|' + @@SERVERNAME;
+    SELECT 'DAG_REPOINTED=$(DagName)|$(MemberAg)|$(ListenerUrl)|' + @@SERVERNAME;
 END

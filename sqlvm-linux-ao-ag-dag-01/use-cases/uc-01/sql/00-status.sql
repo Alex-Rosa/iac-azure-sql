@@ -18,6 +18,8 @@ JOIN sys.availability_groups ag ON ag.group_id = ar.group_id
 LEFT JOIN sys.dm_hadr_availability_replica_states rs ON rs.replica_id = ar.replica_id
 WHERE ag.name = N'$(AgName)'
 ORDER BY ar.replica_server_name;
+-- Every distributed AG defined on this node (uc-01 checks that all of them were declared).
+SELECT 'DISTRIBUTED_AG=' + name FROM sys.availability_groups WHERE is_distributed = 1;
 SELECT 'DB=' + d.name
      + '|' + d.state_desc COLLATE DATABASE_DEFAULT
      + '|' + ISNULL(drs.synchronization_state_desc COLLATE DATABASE_DEFAULT, 'NOT_IN_AG')

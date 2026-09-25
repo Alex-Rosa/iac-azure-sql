@@ -313,8 +313,9 @@ stacks must use the same `-Identifier`. The Distributed AG is named
 and it's idempotent. Its steps:
 
 1. **Networking.** Peers every node VNet of one stack with every node VNet of the other (four
-   peerings each way), and adds an NSG rule `allow-ag-endpoint-from-dag` (5022 from the other
-   stack's VNets) on all four nodes. Any node can hold the global primary or forwarder role after
+   peerings each way). It also adds an NSG rule `allow-ag-endpoint-from-dag-<other stack's primary
+   suffix>` (5022 from the other stack's VNets) on all four nodes, at the first free priority from
+   130. Any node can hold the global primary or forwarder role after
    a local failover, so all four pairings are needed. VNet ranges must not overlap; the automatic
    ranges already guarantee this.
 2. **Certificate trust.** Each node trusts the endpoint certificates of both nodes in the other
@@ -346,6 +347,20 @@ primary. The forwarder's copies of the databases stay behind in RESTORING state;
 `deploy-dag` again to re-link and re-seed. Peering, NSG rules and certificate trust are left in
 place.
 
+**Several forwarders.** An AG can be the global primary of several Distributed AGs, one per
+forwarder AG. Run `deploy-dag` once per forwarder stack with the same global primary suffixes:
+
+```powershell
+./deploy.ps1 -Action deploy-dag -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 `
+             -DagForwarderPrimarySuffix node-3 -DagForwarderSecondarySuffix node-4   # dagsqlvm-node-1-node-3
+./deploy.ps1 -Action deploy-dag -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 `
+             -DagForwarderPrimarySuffix node-5 -DagForwarderSecondarySuffix node-6   # dagsqlvm-node-1-node-5
+```
+
+Each link gets its own peerings, NSG rule and certificate trust, so adding one never changes
+another. Forwarders aren't linked to each other. The use-case scripts take every forwarder with
+`-Forwarders node-3:node-4,node-5:node-6`.
+
 **Redeploying a stack.** If Bicep is re-applied to a stack (e.g. rebuilding a removed secondary),
 check `status-dag` afterwards. Re-run `deploy-dag` if any cross-stack peering or NSG rule is missing.
 
@@ -373,7 +388,7 @@ check `status-dag` afterwards. Re-run `deploy-dag` if any cross-stack peering or
   is `0.0.0.0/0`, which is open to everyone. Keep the list tight, and use `refresh-access` when
   your IP changes.
 - Port 5022 (the AG endpoint) accepts traffic only from the peer VNet, plus the other stack's
-  VNets once a Distributed AG links them (`allow-ag-endpoint-from-dag`).
+  VNets once a Distributed AG links them (`allow-ag-endpoint-from-dag-<stack>`, one rule per link).
 - The generated passwords avoid characters that break shell quoting. They are stored in plain
   text in `state/` and in the `logs/` transcripts. Both folders are git-ignored, so keep them
   off shared drives.

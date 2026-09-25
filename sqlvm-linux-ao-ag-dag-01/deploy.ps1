@@ -919,6 +919,34 @@ function Add-DagPeering {
     Write-Host "  peering $($From.Vnet) -> $($To.Vnet): $state"
 }
 
+# NSG rule on one node allowing the AG endpoint (5022) from the other stack's VNets. One rule PER
+# LINKED STACK ('allow-ag-endpoint-from-dag-<peer primary suffix>'): a global primary AG can be in
+# several distributed AGs (one per forwarder), and a shared rule name would make each deploy-dag
+# overwrite the previous link's sources.
+function Set-DagNsgRule {
+    param($Node, [string]$PeerSuffix, [string[]]$Sources)
+    $name  = "allow-ag-endpoint-from-dag-$PeerSuffix"
+    $rules = @(az network nsg rule list -g $Node.Rg --nsg-name $Node.Nsg `
+        --query "[?direction=='Inbound'].{n:name, p:priority, s:sourceAddressPrefixes}" -o json 2>$null | ConvertFrom-Json)
+    $existing = $rules | Where-Object { $_.n -eq $name } | Select-Object -First 1
+    $priority = if ($existing) { $existing.p } else {
+        $used = @($rules | ForEach-Object { [int]$_.p })
+        130..199 | Where-Object { $used -notcontains $_ } | Select-Object -First 1
+    }
+    if (-not $priority) { Write-Error "No free NSG priority (130-199) on $($Node.Nsg)."; exit 1 }
+    az network nsg rule create -g $Node.Rg --nsg-name $Node.Nsg -n $name --priority $priority `
+        --direction Inbound --access Allow --protocol Tcp --destination-port-ranges 5022 `
+        --source-address-prefixes @Sources --description "Distributed AG: AG endpoint from stack $PeerSuffix" -o none
+    if ($LASTEXITCODE -ne 0) { Write-Error "Failed to update NSG $($Node.Nsg)."; exit 1 }
+    Write-Host "  $($Node.Nsg): $name (priority $priority) - 5022 from $($Sources -join ', ')"
+    # Earlier versions used one shared rule name for every link: drop it once this link has its own rule.
+    $legacy = $rules | Where-Object { $_.n -eq 'allow-ag-endpoint-from-dag' } | Select-Object -First 1
+    if ($legacy -and -not (Compare-Object @($legacy.s | Sort-Object) @($Sources | Sort-Object))) {
+        az network nsg rule delete -g $Node.Rg --nsg-name $Node.Nsg -n 'allow-ag-endpoint-from-dag' -o none 2>$null
+        Write-Host "  $($Node.Nsg): replaced legacy rule allow-ag-endpoint-from-dag"
+    }
+}
+
 # VNet peering between every node VNet of one stack and every node VNet of the other (any node can
 # hold the global primary / forwarder role after a local failover), plus an NSG rule on every node
 # allowing the AG endpoint (5022) from the other stack's VNets.
@@ -941,16 +969,10 @@ function Add-DagNetworking {
         }
     }
     foreach ($a in $GpNodes) { foreach ($b in $FwNodes) { Add-DagPeering $a $b; Add-DagPeering $b $a } }
-    foreach ($pair in @(@($GpNodes, $FwNodes), @($FwNodes, $GpNodes))) {
-        $sources = @($pair[1] | ForEach-Object { $_.Space })
-        foreach ($n in $pair[0]) {
-            az network nsg rule create -g $n.Rg --nsg-name $n.Nsg -n 'allow-ag-endpoint-from-dag' --priority 130 `
-                --direction Inbound --access Allow --protocol Tcp --destination-port-ranges 5022 `
-                --source-address-prefixes @sources --description 'Distributed AG: AG endpoint from the other stack' -o none
-            if ($LASTEXITCODE -ne 0) { Write-Error "Failed to update NSG $($n.Nsg)."; exit 1 }
-            Write-Host "  $($n.Nsg): 5022 allowed from $($sources -join ', ')"
-        }
-    }
+    # Rules are named after the OTHER stack's primary suffix (the stack's first node, as in its RG name).
+    $gpSources = @($GpNodes | ForEach-Object { $_.Space }); $fwSources = @($FwNodes | ForEach-Object { $_.Space })
+    foreach ($n in $GpNodes) { Set-DagNsgRule -Node $n -PeerSuffix $FwNodes[0].Suffix -Sources $fwSources }
+    foreach ($n in $FwNodes) { Set-DagNsgRule -Node $n -PeerSuffix $GpNodes[0].Suffix -Sources $gpSources }
 }
 
 # Every node trusts the mirroring certificate of every node in the OTHER stack (login + certificate
@@ -1088,7 +1110,7 @@ function Invoke-DeployDag {
         # databases are never dropped; the check below stops the deploy for those.
         $drop = @(Invoke-RunCommandBatch @($FwNodes | ForEach-Object { New-NodeScriptRequest -Node $_ -Script 'dag-03-drop-orphan-dbs.sh' -Arguments @($_.Sa, ($gpDbs -join ',')) -Label 'drop orphan copies' }))
         Assert-RcOk $drop
-        foreach ($r in $drop) { foreach ($k in @('DROPPED_DB', 'KEPT_DB')) { foreach ($v in (Get-RcVals $r $k)) { Write-Host "  [$($r.Vm)] $k = $v" } } }
+        foreach ($r in $drop) { foreach ($k in @('DROPPED_DB', 'KEPT_DB', 'WAIT_DB')) { foreach ($v in (Get-RcVals $r $k)) { Write-Host "  [$($r.Vm)] $k = $v" } } }
         # A same-named database outside any AG on the forwarder side would block seeding.
         $check = Get-DagStatus $FwNodes
         foreach ($n in $FwNodes) {

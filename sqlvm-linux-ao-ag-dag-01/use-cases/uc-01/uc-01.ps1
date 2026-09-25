@@ -5,30 +5,33 @@
 
 .DESCRIPTION
     Drill + runbook automation for the topology built by ../../deploy.ps1:
-      - AG1 (global primary of the distributed AG): primary node in region A, ASYNC secondary in region B
-      - AG2 (forwarder of the distributed AG, optional): two nodes, typically also in region A
-      - distributed AG AG1 -> AG2 (deploy.ps1 -Action deploy-dag)
+      - AG1: primary node in region A, ASYNC secondary (the DR node) in region B. AG1 is the global
+        primary of one distributed AG per forwarder stack.
+      - Forwarder AGs (optional, any number): one stack each, linked to AG1 with
+        deploy.ps1 -Action deploy-dag. They can be in region A (they fail with it) or elsewhere
+        (they survive and must follow AG1 to its new primary).
     All AGs use CLUSTER_TYPE = NONE (manual failover, no listener).
 
     A failure of region A takes down AG1's primary AND every forwarder node in region A. The
-    resolution promotes AG1's replica in region B, which also makes it the distributed AG's global
-    primary. The forwarder AG is re-attached to it when region A recovers.
+    resolution promotes AG1's DR node, which also becomes the global primary of every distributed
+    AG: surviving forwarders are repointed to it immediately, the others when region A recovers.
 
     Actions (asked for when not passed):
       status            Power state + AG / distributed AG health of every node.
-      precheck          Starts deallocated VMs (after confirmation), checks every AG and the distributed
-                        AG are healthy, opens a drill run (runs/<rg>/<run-id>/), creates the ledger table.
+      precheck          Starts deallocated VMs (after confirmation), checks every AG and distributed AG
+                        is healthy, opens a drill run (runs/<rg>/<run-id>/), creates the ledger table.
       start-workload    Background writer on AG1's primary: 1 ledger row every ~0.2 s.
       simulate-failure  Hard power-off of EVERY node in the primary's region (no guest shutdown).
-      failover          DR node only: FORCE_FAILOVER_ALLOW_DATA_LOSS, remove the lost replica, repoint the
-                        distributed AG to the new primary, prove writes, repoint DNS (optional).
+      failover          DR node + surviving forwarders only: FORCE_FAILOVER_ALLOW_DATA_LOSS, remove the
+                        lost replica, repoint every distributed AG to the new primary, prove writes,
+                        repoint DNS (optional), re-attach the forwarders that are still up.
       verify            New primary status + write test + distributed AG view.
       drill             precheck -> start-workload -> warm-up -> simulate-failure -> failover -> verify.
       reinstate         Region is back: fence the stale primary (1433 + 5022), start the region's VMs,
-                        measure the exact data loss, preserve it, drop the stale AG/distributed AG copy,
-                        rejoin it as an ASYNC secondary, re-attach the forwarder AG, lift the fence.
-      failback          Planned, no-data-loss role swap back to the original primary (distributed AG
-                        repointed on both sides).
+                        measure the exact data loss, preserve it, drop the stale AG/distributed AG copies,
+                        rejoin it as an ASYNC secondary, re-attach every forwarder, lift the fence.
+      failback          Planned, no-data-loss role swap back to the original primary (every distributed
+                        AG repointed on both sides).
 
     All SQL runs through 'az vm run-command' (Azure control plane), so it doesn't need SSH or port
     1433 to be reachable from this machine. Every step writes evidence to runs/<rg>/<run-id>/.
@@ -36,9 +39,9 @@
 .EXAMPLE
     ./uc-01.ps1                                   # interactive
 .EXAMPLE
-    ./uc-01.ps1 -Action drill -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -ForwarderPrimarySuffix node-3 -ForwarderSecondarySuffix node-4
+    ./uc-01.ps1 -Action drill -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -Forwarders node-3:node-4,node-5:node-6
 .EXAMPLE
-    ./uc-01.ps1 -Action reinstate -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -ForwarderPrimarySuffix node-3 -ForwarderSecondarySuffix node-4
+    ./uc-01.ps1 -Action reinstate -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -Forwarders node-3:node-4,node-5:node-6
 #>
 param(
     [ValidateSet('', 'status', 'precheck', 'start-workload', 'simulate-failure', 'failover', 'verify', 'drill', 'reinstate', 'failback')]
@@ -49,18 +52,22 @@ param(
     [string]$Identifier          = '',
     [string]$PrimaryNodeSuffix   = '',   # AG1 node in the region that FAILS
     [string]$SecondaryNodeSuffix = '',   # AG1 DR node in the alternate region
-    [string]$ForwarderPrimarySuffix   = '',   # AG2 (forwarder) nodes; 'none' = no distributed AG
+    # Forwarder stacks of AG1's distributed AGs: one 'primary:secondary' suffix pair per distributed
+    # AG, e.g. node-3:node-4,node-5:node-6. 'none' = no distributed AG. Asked for when not passed.
+    [string[]]$Forwarders        = @(),
+    # Single-forwarder shorthand (same as -Forwarders <primary>:<secondary>).
+    [string]$ForwarderPrimarySuffix   = '',
     [string]$ForwarderSecondarySuffix = '',
     [string]$Prefix              = 'sqlvm',
     [string]$AgName              = '',   # default agsqlvm-<PrimaryNodeSuffix>
-    [string]$DagName             = '',   # default dagsqlvm-<PrimaryNodeSuffix>-<ForwarderPrimarySuffix>
+    [string]$DagName             = '',   # single forwarder only; default dagsqlvm-<PrimaryNodeSuffix>-<forwarder primary>
     [string]$DemoDbName          = 'AGDemoDB',
 
     [int]$WorkloadSeconds = 900,   # writer lifetime (it dies with the VM anyway)
     [int]$WarmupSeconds   = 60,    # drill: writes before the failure is injected
     [int]$DetectSeconds   = 30,    # drill: pause between failure and failover (detection/decision time)
     [int]$WriteTestRows   = 10,
-    [int]$ForwarderResyncMinutes = 15,   # reinstate: wait this long for the forwarder to resynchronize
+    [int]$ForwarderResyncMinutes = 15,   # wait this long for a forwarder to resynchronize
 
     # Optional DNS redirection of the application endpoint (Azure Private DNS A record).
     [string]$PrivateDnsZone          = '',
@@ -68,7 +75,7 @@ param(
     [string]$PrivateDnsResourceGroup = '',
 
     [switch]$SkipOrphanBackup,
-    [switch]$ReseedForwarder,   # reinstate: if the forwarder can't resynchronize, drop + recreate the distributed AG
+    [switch]$ReseedForwarder,   # reinstate: re-seed (drop + recreate the distributed AG of) a forwarder that can't resynchronize
     [switch]$Force,
     [switch]$AutoApprove
 )
@@ -80,6 +87,7 @@ $UcDir      = $PSScriptRoot
 $ProjectDir = (Resolve-Path (Join-Path $UcDir '..' '..')).Path
 $SqlDir     = Join-Path $UcDir 'sql'
 $StateDir   = Join-Path $ProjectDir 'state'
+$SuffixPattern = '^[a-z0-9]([a-z0-9-]{0,18}[a-z0-9])?$'
 $FenceRules = @(
     @{ Name = 'uc01-fence-deny-sql';      Direction = 'Inbound';  Port = '1433'; Priority = 100 },
     @{ Name = 'uc01-fence-deny-hadr-in';  Direction = 'Inbound';  Port = '5022'; Priority = 101 },
@@ -211,6 +219,7 @@ function Start-UcVms {
 # Runs bash bodies on several VMs in parallel. Each request: @{ Node; Body; Label }. The body sees
 # SQLCMDPASSWORD (that node's SA password) and a SQL() sqlcmd wrapper. Returns results in request
 # order with KEY=VALUE stdout lines parsed into .Values (Azure caps output at ~4 KB per call).
+# Azure runs one Run Command per VM at a time: never put two requests for the same VM in one batch.
 function Invoke-VmBatch {
     param([object[]]$Requests)
     $template = @'
@@ -230,7 +239,7 @@ echo "UC01_EXIT=$?"
         }
     })
     foreach ($j in $jobs) { Write-Host "  [$($j.Vm)] $($j.Label) ..." -ForegroundColor DarkGray }
-    $raw = @($jobs | ForEach-Object -ThrottleLimit 4 -Parallel {
+    $raw = @($jobs | ForEach-Object -ThrottleLimit 6 -Parallel {
         $j = $_
         $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('uc01-' + [guid]::NewGuid().ToString('N') + '.sh')
         [System.IO.File]::WriteAllText($tmp, $j.Script)
@@ -305,6 +314,87 @@ function Invoke-Sql {
     return $r
 }
 
+# ── Distributed AG helpers ─────────────────────────────────────────────────────
+# 14-dag-status.sql for every listed distributed AG, in one body (every line is prefixed with the
+# distributed AG's name: DAG_EXISTS=<dag>|0/1, DAG_MEMBER=<dag>|<ag>|<url>|<role>|<conn>|<health>,
+# DAG_DB=<dag>|<ag>|<db>|<state>|suspended=0/1).
+function Get-DagStatusBody {
+    param([object[]]$Fws)
+    return ((@($Fws) | ForEach-Object { Get-SqlBody -File '14-dag-status.sql' -Vars @{ DagName = $_.Dag } }) -join "`n")
+}
+
+function Get-DagMember {
+    param($Result, [string]$Dag, [string]$MemberAg)
+    return (@(Get-Vals $Result 'DAG_MEMBER' | Where-Object { $_ -like "$Dag|$MemberAg|*" }) | Select-Object -First 1)
+}
+
+function Get-DagDbRows {
+    param($Result, [string]$Dag, [string]$MemberAg)
+    return @(Get-Vals $Result 'DAG_DB' | Where-Object { $_ -like "$Dag|$MemberAg|*" })
+}
+
+# Points AG1's LISTENER_URL at $Url in every listed distributed AG: on the global primary node (all
+# distributed AGs in ONE call) and, unless -GlobalSideOnly, on each forwarder's primary replica.
+function Invoke-DagRepoint {
+    param($GlobalPrimary, [object[]]$Fws, [string]$Url, [switch]$GlobalSideOnly)
+    $body = (@($Fws) | ForEach-Object { Get-SqlBody -File '13-dag-repoint.sql' -Vars @{ DagName = $_.Dag; MemberAg = $AgName; ListenerUrl = $Url } }) -join "`n"
+    $requests = @(@{ Node = $GlobalPrimary; Label = 'repoint distributed AG(s) (global primary)'; Body = $body })
+    if (-not $GlobalSideOnly) {
+        foreach ($f in $Fws) {
+            $requests += New-SqlRequest -Node $f.Primary -File '13-dag-repoint.sql' -Label "repoint $($f.Dag) (forwarder)" `
+                -Vars @{ DagName = $f.Dag; MemberAg = $AgName; ListenerUrl = $Url }
+        }
+    }
+    $rp = @(Invoke-VmBatch $requests)
+    Assert-Ok $rp
+    $out = @()
+    foreach ($r in $rp) { foreach ($v in (Get-Vals $r 'DAG_REPOINTED')) { Write-Host "  DAG_REPOINTED = $v"; $out += $v } }
+    return $out
+}
+
+# Resumes data movement on every node of the listed forwarder AGs (suspended by the forced failover upstream).
+function Resume-Forwarders {
+    param([object[]]$Fws)
+    $requests = foreach ($f in $Fws) { foreach ($n in $f.Nodes) { New-SqlRequest -Node $n -File '33-demote-and-resume.sql' -Label 'resume' -Vars @{ AgName = $f.Ag; Demote = 0 } } }
+    $res = @(Invoke-VmBatch @($requests))
+    Assert-Ok $res
+    foreach ($r in $res) { foreach ($k in @('RESUMED', 'RESUME_SKIPPED')) { foreach ($v in (Get-Vals $r $k)) { Write-Host "  [$($r.Vm)] $k = $v" } } }
+}
+
+# Waits until every listed forwarder AG's databases are SYNCHRONIZING/SYNCHRONIZED in its distributed
+# AG, as seen from the global primary ($From). Returns the forwarders still NOT synchronizing at timeout.
+function Wait-ForwardersSync {
+    param($From, [object[]]$Fws, [int]$TimeoutMinutes)
+    $deadline = (Get-UtcNow).AddMinutes($TimeoutMinutes)
+    while ($true) {
+        $s = @(Invoke-VmBatch @(@{ Node = $From; Label = 'distributed AG state'; Body = (Get-DagStatusBody $Fws) }))[0]
+        Assert-Ok $s
+        $pending = @()
+        foreach ($f in $Fws) {
+            $rows = @(Get-DagDbRows $s $f.Dag $f.Ag)
+            $ok = @($rows | Where-Object { $_.Split('|')[3] -in @('SYNCHRONIZING', 'SYNCHRONIZED') -and $_ -notmatch 'suspended=1' })
+            Write-Host "  $($f.Dag): forwarder $($f.Ag) $($ok.Count)/$($rows.Count) database(s) synchronizing  [$(Get-DagMember $s $f.Dag $f.Ag)]"
+            if ($rows.Count -eq 0 -or $ok.Count -lt $rows.Count) { $pending += $f }
+        }
+        if ($pending.Count -eq 0) { return @() }
+        if ((Get-UtcNow) -gt $deadline) { return $pending }
+        Start-Sleep 30
+    }
+}
+
+# Rebuilds one forwarder's distributed AG (drop + deploy-dag), which re-seeds the forwarder from the
+# CURRENT global primary. Only valid while every node of both stacks is up and AG1 is healthy.
+function Invoke-ReseedForwarder {
+    param($F)
+    Write-Host "  Re-seeding $($F.Ag): rebuilding $($F.Dag) with ../../deploy.ps1 (remove-dag, deploy-dag) ..." -ForegroundColor Yellow
+    $deployArgs = @('-Identifier', $Identifier, '-PrimaryNodeSuffix', $PrimaryNodeSuffix, '-SecondaryNodeSuffix', $SecondaryNodeSuffix,
+                    '-DagForwarderPrimarySuffix', $F.PrimarySuffix, '-DagForwarderSecondarySuffix', $F.SecondarySuffix,
+                    '-DagName', $F.Dag, '-AutoApprove')
+    & pwsh -NoProfile -File (Join-Path $ProjectDir 'deploy.ps1') -Action remove-dag @deployArgs
+    & pwsh -NoProfile -File (Join-Path $ProjectDir 'deploy.ps1') -Action deploy-dag @deployArgs
+    if ($LASTEXITCODE -ne 0) { Write-Error "deploy-dag failed while re-seeding $($F.Ag)."; exit 1 }
+}
+
 # ── Status helpers ─────────────────────────────────────────────────────────────
 function Get-StatusAll {
     param([object[]]$Nodes)
@@ -313,7 +403,7 @@ function Get-StatusAll {
     if ($running.Count -eq 0) { return $result }
     $requests = foreach ($n in $running) {
         $body = Get-SqlBody -File '00-status.sql' -Vars @{ AgName = $n.Ag }
-        if ($HasDag) { $body += "`n" + (Get-SqlBody -File '14-dag-status.sql' -Vars @{ DagName = $DagName }) }
+        if ($HasDag) { $body += "`n" + (Get-DagStatusBody $ForwarderList) }
         @{ Node = $n; Label = 'AG status'; Body = $body }
     }
     $batch = @(Invoke-VmBatch @($requests))
@@ -353,24 +443,6 @@ function Set-DnsToIp {
     Add-Event 'dns-updated' "$PrivateDnsRecord.$PrivateDnsZone -> $Ip"
 }
 
-# Waits until the forwarder AG's databases are SYNCHRONIZING/SYNCHRONIZED in the distributed AG, as
-# seen from the global primary ($From). Returns $true / $false (timeout).
-function Wait-ForwarderSync {
-    param($From, [int]$TimeoutMinutes)
-    $deadline = (Get-UtcNow).AddMinutes($TimeoutMinutes)
-    while ($true) {
-        $s = Invoke-Sql -Node $From -File '14-dag-status.sql' -Vars @{ DagName = $DagName } -Label 'distributed AG state'
-        $rows = @(Get-Vals $s 'DAG_DB' | Where-Object { $_ -like "$FwAg|*" })
-        $ok = @($rows | Where-Object { $_.Split('|')[2] -in @('SYNCHRONIZING', 'SYNCHRONIZED') -and $_ -notmatch 'suspended=1' })
-        Write-Host "  forwarder $FwAg : $($ok.Count)/$($rows.Count) database(s) synchronizing"
-        foreach ($r in (Get-Vals $s 'DAG_MEMBER')) { Write-Host "    DAG_MEMBER $r" }
-        foreach ($r in $rows) { Write-Host "    DAG_DB     $r" }
-        if ($rows.Count -gt 0 -and $ok.Count -eq $rows.Count) { return $true }
-        if ((Get-UtcNow) -gt $deadline) { return $false }
-        Start-Sleep 30
-    }
-}
-
 function Wait-ReplicaState {
     param($On, [string]$Replica, [string[]]$Accept, [int]$TimeoutMinutes, [string]$What)
     $deadline = (Get-UtcNow).AddMinutes($TimeoutMinutes)
@@ -399,7 +471,7 @@ function Invoke-Status {
 }
 
 function Invoke-Precheck {
-    Write-Step 'Pre-check: every node running, AGs and distributed AG healthy'
+    Write-Step 'Pre-check: every node running, AGs and distributed AGs healthy'
     Update-PowerStates
     $down = @($AllNodes | Where-Object { $_.Power -ne 'running' })
     if ($down.Count -gt 0) {
@@ -420,13 +492,20 @@ function Invoke-Precheck {
     $agDbs = @(Get-Vals $o 'DB' | Where-Object { $_ -notmatch '\|NOT_IN_AG\|' })
     if ($agDbs.Count -eq 0) { $problems += "no database is in $AgName" }
     foreach ($db in $agDbs) { if ($db -notmatch '\|ONLINE\|' -or $db -match 'suspended=1') { $problems += "AG database not healthy: $db" } }
-    if ($HasDag) {
-        if ((Get-Val $o 'DAG_EXISTS') -ne '1') { $problems += "distributed AG $DagName not found on $($Orig.Name)" }
-        $fwMember = @(Get-Vals $o 'DAG_MEMBER' | Where-Object { $_ -like "$FwAg|*" })
-        if (-not $fwMember -or $fwMember[0] -notmatch '\|CONNECTED\|') { $problems += "forwarder $FwAg is not CONNECTED to the global primary" }
-        $fwDbs = @(Get-Vals $o 'DAG_DB' | Where-Object { $_ -like "$FwAg|*" })
-        if ($fwDbs.Count -eq 0) { $problems += "forwarder $FwAg reports no databases" }
-        foreach ($r in $fwDbs) { if ($r.Split('|')[2] -notin @('SYNCHRONIZING', 'SYNCHRONIZED') -or $r -match 'suspended=1') { $problems += "forwarder database not healthy: $r" } }
+
+    # Every distributed AG of AG1 must be declared: failover has to repoint all of them, or that
+    # forwarder silently stops receiving changes.
+    $declared = @($ForwarderList | ForEach-Object { $_.Dag })
+    foreach ($dag in (Get-Vals $o 'DISTRIBUTED_AG')) {
+        if ($declared -notcontains $dag) { $problems += "distributed AG $dag exists on $($Orig.Name) but wasn't declared with -Forwarders" }
+    }
+    foreach ($f in $ForwarderList) {
+        if (@(Get-Vals $o 'DAG_EXISTS') -notcontains "$($f.Dag)|1") { $problems += "distributed AG $($f.Dag) not found on $($Orig.Name)"; continue }
+        $member = Get-DagMember $o $f.Dag $f.Ag
+        if (-not $member -or $member -notmatch '\|CONNECTED\|') { $problems += "$($f.Dag): forwarder $($f.Ag) is not CONNECTED to the global primary" }
+        $rows = @(Get-DagDbRows $o $f.Dag $f.Ag)
+        if ($rows.Count -eq 0) { $problems += "$($f.Dag): forwarder $($f.Ag) reports no databases" }
+        foreach ($r in $rows) { if ($r.Split('|')[3] -notin @('SYNCHRONIZING', 'SYNCHRONIZED') -or $r -match 'suspended=1') { $problems += "$($f.Dag): forwarder database not healthy: $r" } }
     }
     if ($problems.Count -gt 0) {
         Write-Host ''
@@ -440,7 +519,8 @@ function Invoke-Precheck {
     Add-Event 'precheck-passed'
     Invoke-Sql -Node $Orig -File '01-prepare-workload.sql' -Vars @{ DbName = $DemoDbName } -Label 'create ledger table' | Out-Null
     Save-Evidence 'precheck' ([ordered]@{
-        runId = $script:RunId; utc = (Format-Utc (Get-UtcNow)); ag = $AgName; distributedAg = $(if ($HasDag) { $DagName } else { $null })
+        runId = $script:RunId; utc = (Format-Utc (Get-UtcNow)); ag = $AgName
+        distributedAgs = @($ForwarderList | ForEach-Object { [ordered]@{ name = $_.Dag; forwarderAg = $_.Ag; region = $_.Primary.Region; inFailedRegion = $_.InFailedRegion } })
         failedRegion = $Orig.Region; drRegion = $Dr.Region
         nodes = @($AllNodes | ForEach-Object { [ordered]@{ name = $_.Name; role = $_.Role; region = $_.Region; ip = $_.PrivateIp } })
         status = @($AllNodes | ForEach-Object { [ordered]@{ node = $_.Name; output = $st[$_.Vm].Stdout } })
@@ -557,18 +637,9 @@ or pass -Force if the primary is truly unusable although still connected.
         $times = @{ started = $t0; completed = $t1 }
     }
 
-    # 3. The new primary of AG1 is the distributed AG's global primary: point AG1's LISTENER_URL at it.
-    #    The forwarder (down with the region) is repointed by 'reinstate'.
-    $dagRepoint = $null
-    if ($HasDag) {
-        $rp = Invoke-Sql -Node $Dr -File '13-dag-repoint.sql' -Label 'repoint distributed AG' `
-            -Vars @{ DagName = $DagName; MemberAg = $AgName; ListenerUrl = "tcp://$($Dr.PrivateIp):5022" }
-        $dagRepoint = Get-Val $rp 'DAG_REPOINTED'
-        Write-Host "  DAG_REPOINTED = $dagRepoint"
-        Add-Event 'dag-repointed' $dagRepoint
-    }
-
-    # 4. Prove the alternate region accepts transactions (retries while databases finish recovery).
+    # 3. Prove the alternate region accepts transactions (retries while databases finish recovery).
+    #    This comes before the distributed AG repoint: applications don't need it to write, and every
+    #    Run Command round trip (~30 s) would otherwise be added to the RTO.
     $write = $null
     for ($i = 1; $i -le 6; $i++) {
         $write = Invoke-Sql -Node $Dr -File '12-write-test.sql' -Label 'write test' -AllowFail `
@@ -582,33 +653,83 @@ or pass -Force if the primary is truly unusable although still connected.
     Add-Event 'first-write-on-dr' (Get-Val $write 'WRITE_OK')
     Write-Host "  WRITE_OK = $(Get-Val $write 'WRITE_OK')" -ForegroundColor Green
     foreach ($l in (Get-Vals $write 'LEDGER')) { Write-Host "  LEDGER   = $l" }
+    # SQL Server's own commit time of the first write (WRITE_OK=<rows>|<server>|<SYSUTCDATETIME>) - the
+    # Run Command round trip that reports it back is not part of the outage.
+    $writeCommitUtc = $null
+    $wparts = "$(Get-Val $write 'WRITE_OK')".Split('|')
+    if ($wparts.Count -ge 3 -and $wparts[2]) { $writeCommitUtc = ConvertTo-Utc $wparts[2] }
+    # The last pre-failure row the DR node really has, read AFTER recovery: the pre-failover snapshot
+    # can miss rows that were hardened on DR but not yet redone (readable-secondary lag).
+    $drLastSeqAfter = $null
+    $pre = @(Get-Vals $write 'LEDGER' | Where-Object { $_ -like 'pre-failure|*' }) | Select-Object -First 1
+    if ($pre -and $pre -match 'max_seq=(\d+)\|last=([^|]+)') { $drLastSeqAfter = "$($Matches[1])|$($Matches[2])" }
 
-    # 5. Redirect clients.
+    # 4. Redirect clients.
     Set-DnsToIp -Ip $Dr.PrivateIp -Why 'failover'
 
-    # 6. Evidence + RTO. A rerun (already PRIMARY) keeps the original failover evidence intact.
+    # 5. RTO = failure injected (power-off requested: the VMs stop within ~2 s, 'az vm wait' only
+    #    confirms it ~30 s later) -> first write committed on DR, by SQL Server's clock.
     $failure = Read-Evidence 'failure'
-    $rto = $null
-    if ($failure -and $failure.poweredOffUtc) { $rto = [math]::Round(($tWrite - (ConvertTo-Utc $failure.poweredOffUtc)).TotalSeconds, 1) }
+    $rto = $null; $rtoObserved = $null
+    if ($failure -and $failure.requestedUtc) {
+        $end = if ($writeCommitUtc) { $writeCommitUtc } else { $tWrite }
+        $rto = [math]::Round(($end - (ConvertTo-Utc $failure.requestedUtc)).TotalSeconds, 1)
+        $rtoObserved = [math]::Round(($tWrite - (ConvertTo-Utc $failure.requestedUtc)).TotalSeconds, 1)
+    }
+    if ($null -ne $rto) { Write-Host "  RTO (failure injected -> first write committed on DR): $rto s  (tool observed: $rtoObserved s)" -ForegroundColor Green }
+
+    # 6. The new primary of AG1 is the global primary of every distributed AG: point AG1's
+    #    LISTENER_URL at it (global side; the forwarder side follows below / in 'reinstate').
+    $drUrl = "tcp://$($Dr.PrivateIp):5022"
+    $dagRepoint = @()
+    if ($HasDag) {
+        $dagRepoint = @(Invoke-DagRepoint -GlobalPrimary $Dr -Fws $ForwarderList -Url $drUrl -GlobalSideOnly)
+        Add-Event 'dag-repointed' ($dagRepoint -join '; ')
+    }
+
+    # 7. Forwarders outside the failed region are still up: re-attach them to the new global primary
+    #    now (after the RTO is measured). Forwarders in the failed region are handled by 'reinstate'.
+    $forwarderResults = [ordered]@{}
+    foreach ($f in $ForwarderList) { if ($f.InFailedRegion) { $forwarderResults[$f.Dag] = "down with $($Orig.Region) - re-attached by reinstate" } }
+    $survivors = @($ForwarderList | Where-Object { -not $_.InFailedRegion -and (Get-PowerState $_.Primary) -eq 'running' })
+    if ($survivors.Count -gt 0) {
+        Write-Step "Re-attaching the surviving forwarder(s) to $($Dr.Name): $(($survivors | ForEach-Object { $_.Ag }) -join ', ')"
+        Invoke-DagRepoint -GlobalPrimary $Dr -Fws $survivors -Url $drUrl | Out-Null
+        Resume-Forwarders $survivors
+        $pending = @(Wait-ForwardersSync -From $Dr -Fws $survivors -TimeoutMinutes $ForwarderResyncMinutes)
+        foreach ($f in $survivors) {
+            if ($pending | Where-Object { $_.Dag -eq $f.Dag }) {
+                $forwarderResults[$f.Dag] = 'NOT synchronizing'
+                Write-Host "  $($f.Dag): $($f.Ag) can't resynchronize from $($Dr.Name) - it most likely received transactions from" -ForegroundColor Red
+                Write-Host "  $($Orig.Name) that $($Dr.Name) never got. It keeps serving its (read-only) data but receives nothing" -ForegroundColor Red
+                Write-Host "  new. Re-seed it once $($Orig.Region) is back: -Action reinstate -ReseedForwarder." -ForegroundColor Red
+            } else {
+                $forwarderResults[$f.Dag] = 'synchronizing'
+            }
+        }
+        Add-Event 'surviving-forwarders' (($forwarderResults.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join '; ')
+    }
+
+    # 8. Evidence. A rerun (already PRIMARY) keeps the original failover evidence intact.
     $evidenceName = if (-not $times -and (Read-Evidence 'failover')) { 'failover-rerun' } else { 'failover' }
     Save-Evidence $evidenceName ([ordered]@{
         newPrimary = $Dr.Name; newPrimaryPrivateIp = $Dr.PrivateIp
-        drSnapshot = $snap.Stdout; drLastSeqBeforeFailover = $drLastSeq
+        drSnapshot = $snap.Stdout; drLastSeqBeforeFailover = $drLastSeq; drLastSeqAfterFailover = $drLastSeqAfter
         failoverStartedUtc   = $(if ($times) { Format-Utc $times.started } else { $null })
         failoverCompletedUtc = $(if ($times) { Format-Utc $times.completed } else { $null })
-        distributedAgRepointed = $dagRepoint
-        firstWriteUtc = (Format-Utc $tWrite); writeTest = $write.Stdout
-        rtoSecondsFromPowerOff = $rto
+        distributedAgsRepointed = $dagRepoint; forwarders = $forwarderResults
+        firstWriteUtc = (Format-Utc $tWrite); firstWriteCommitUtc = $(if ($writeCommitUtc) { Format-Utc $writeCommitUtc } else { $null })
+        writeTest = $write.Stdout
+        rtoSeconds = $rto; rtoSecondsToolObserved = $rtoObserved
     })
     Write-Host ''
     Write-Host "  Transactions now go to $($Dr.Name) ($($Dr.Region)), private IP $($Dr.PrivateIp)." -ForegroundColor Green
-    if ($null -ne $rto) { Write-Host "  RTO (primary powered off -> first committed write on DR): $rto s" -ForegroundColor Green }
 }
 
 function Invoke-Verify {
     Write-Step "Verification on $($Dr.Name)"
     $body = (Get-SqlBody -File '00-status.sql' -Vars @{ AgName = $AgName })
-    if ($HasDag) { $body += "`n" + (Get-SqlBody -File '14-dag-status.sql' -Vars @{ DagName = $DagName }) }
+    if ($HasDag) { $body += "`n" + (Get-DagStatusBody $ForwarderList) }
     $st = @(Invoke-VmBatch @(@{ Node = $Dr; Label = 'AG status'; Body = $body }))[0]
     Assert-Ok $st
     $Dr | Add-Member -NotePropertyName Power -NotePropertyValue 'running' -Force
@@ -620,11 +741,17 @@ function Invoke-Verify {
     $agDbs = @(Get-Vals $st 'DB' | Where-Object { $_ -notmatch '\|NOT_IN_AG\|' })
     $pass = (Get-Val $st 'LOCAL_ROLE') -eq 'PRIMARY' -and $agDbs.Count -gt 0 -and -not @($agDbs | Where-Object { $_ -notmatch '\|ONLINE\|' }).Count
     $dagOk = $true
-    if ($HasDag) {
-        $gpMember = @(Get-Vals $st 'DAG_MEMBER' | Where-Object { $_ -like "$AgName|*" })
-        $dagOk = $gpMember.Count -gt 0 -and $gpMember[0] -like "*tcp://$($Dr.PrivateIp):5022|PRIMARY|*"
-        if (-not $dagOk) { Write-Host "  Distributed AG: $AgName is not PRIMARY at tcp://$($Dr.PrivateIp):5022 yet." -ForegroundColor Red }
-        else { Write-Host "  Distributed AG: $($Dr.Name) is the global primary (forwarder $FwAg re-attaches on 'reinstate')." -ForegroundColor Green }
+    foreach ($f in $ForwarderList) {
+        $gp = Get-DagMember $st $f.Dag $AgName
+        if (-not $gp -or $gp -notlike "*|tcp://$($Dr.PrivateIp):5022|PRIMARY|*") {
+            $dagOk = $false
+            Write-Host "  $($f.Dag): $AgName is not PRIMARY at tcp://$($Dr.PrivateIp):5022." -ForegroundColor Red
+            continue
+        }
+        $rows = @(Get-DagDbRows $st $f.Dag $f.Ag)
+        $sync = @($rows | Where-Object { $_.Split('|')[3] -in @('SYNCHRONIZING', 'SYNCHRONIZED') -and $_ -notmatch 'suspended=1' })
+        $state = if ($f.InFailedRegion) { 'down with the failed region (re-attached by reinstate)' } elseif ($rows.Count -gt 0 -and $sync.Count -eq $rows.Count) { 'synchronizing' } else { 'NOT synchronizing' }
+        Write-Host "  $($f.Dag): $($Dr.Name) is the global primary; forwarder $($f.Ag) ($($f.Primary.Region)) $state." -ForegroundColor $(if ($state -eq 'NOT synchronizing') { 'Yellow' } else { 'Green' })
     }
     Save-Evidence 'verify' ([ordered]@{ utc = (Format-Utc (Get-UtcNow)); pass = ($pass -and $dagOk); status = $st.Stdout; writeTest = $write.Stdout })
     Write-Host ''
@@ -656,7 +783,7 @@ function Set-Fence {
 }
 
 function Invoke-Reinstate {
-    Write-Step "Reinstate region $($Orig.Region): $($Orig.Name) back as a secondary$(if ($HasDag) { ", forwarder $FwAg re-attached" })"
+    Write-Step "Reinstate region $($Orig.Region): $($Orig.Name) back as a secondary$(if ($HasDag) { ', forwarders re-attached' })"
     # (PowerShell names are case-insensitive: never name a local $dr - it would replace the $Dr node.)
     $drStatus = Invoke-Sql -Node $Dr -File '00-status.sql' -Vars @{ AgName = $AgName } -Label 'AG status'
     if ((Get-Val $drStatus 'LOCAL_ROLE') -ne 'PRIMARY') { Write-Error "$($Dr.Name) is not PRIMARY - nothing to reinstate."; exit 1 }
@@ -666,8 +793,8 @@ function Invoke-Reinstate {
     }
 
     # 1. Fence before power-on: the stale primary boots believing it is PRIMARY of AG1 AND the global
-    #    primary of the distributed AG. Block clients (1433) and every AG endpoint connection (5022
-    #    in/out) so neither applications nor the forwarder can talk to it.
+    #    primary of every distributed AG. Block clients (1433) and every AG endpoint connection (5022
+    #    in/out) so neither applications nor any forwarder can talk to it.
     Write-Host "  Fencing $($Orig.Nsg): deny inbound 1433, inbound 5022, outbound 5022."
     Set-Fence
 
@@ -678,33 +805,50 @@ function Invoke-Reinstate {
     Add-Event 'region-started' (($RegionNodes | ForEach-Object { $_.Vm }) -join ', ')
 
     # 3. Exact data loss: rows the old primary committed that never reached DR (and what the
-    #    forwarder received from it before the outage).
+    #    forwarders in the failed region received from it before the outage).
+    $downFws = @($ForwarderList | Where-Object { $_.InFailedRegion })
     $inspect = @(New-SqlRequest -Node $Orig -File '20-old-primary-inspect.sql' -Label 'inspect old primary' -Vars @{ AgName = $AgName; DbName = $DemoDbName; RunId = (Get-RunIdOrNone) })
-    if ($HasDag) { $inspect += New-SqlRequest -Node $FwPrimary -File '20-old-primary-inspect.sql' -Label 'inspect forwarder' -Vars @{ AgName = $FwAg; DbName = $DemoDbName; RunId = (Get-RunIdOrNone) } }
+    foreach ($f in $downFws) { $inspect += New-SqlRequest -Node $f.Primary -File '20-old-primary-inspect.sql' -Label "inspect $($f.Ag)" -Vars @{ AgName = $f.Ag; DbName = $DemoDbName; RunId = (Get-RunIdOrNone) } }
     $insp = @(Invoke-VmBatch $inspect)
     Assert-Ok $insp[0]
     Write-Host "  Old primary role on boot: $(Get-Val $insp[0] 'LOCAL_ROLE')"
     foreach ($l in (Get-Vals $insp[0] 'AG_DB')) { Write-Host "  AG_DB = $l" }
-    $fwLastSeq = if ($HasDag -and $insp.Count -gt 1 -and $insp[1].Exit -eq 0) { Get-Val $insp[1] 'OLD_LAST_SEQ' } else { $null }
+    $fwLastSeq = [ordered]@{}
+    for ($i = 0; $i -lt $downFws.Count; $i++) {
+        $r = $insp[$i + 1]
+        if ($r.Exit -eq 0 -and (Get-Val $r 'OLD_LAST_SEQ')) {
+            $fwLastSeq[$downFws[$i].Ag] = Get-Val $r 'OLD_LAST_SEQ'
+            Write-Host "  Forwarder $($downFws[$i].Ag) had received up to ledger row $(Get-Val $r 'OLD_LAST_SEQ') before the outage."
+        } else {
+            # Informational only: right after a hard power-off the forwarder's database is often still
+            # recovering (not ONLINE yet), so its ledger can't be read at this point.
+            $fwLastSeq[$downFws[$i].Ag] = 'unavailable (database still recovering)'
+            Write-Host "  Forwarder $($downFws[$i].Ag): ledger not readable yet (database still recovering after the power-off) - informational only." -ForegroundColor DarkGray
+        }
+    }
     $fo = Read-Evidence 'failover'
-    $rpo = [ordered]@{ oldLastSeq = (Get-Val $insp[0] 'OLD_LAST_SEQ'); drLastSeq = $(if ($fo) { $fo.drLastSeqBeforeFailover } else { $null }); forwarderLastSeq = $fwLastSeq }
+    # Baseline: what DR really had after recovery (falls back to the pre-failover snapshot for older runs).
+    $drBase = $null
+    if ($fo) {
+        $drBase = if ($fo.PSObject.Properties['drLastSeqAfterFailover'] -and $fo.drLastSeqAfterFailover) { $fo.drLastSeqAfterFailover } else { $fo.drLastSeqBeforeFailover }
+    }
+    $rpo = [ordered]@{ oldLastSeq = (Get-Val $insp[0] 'OLD_LAST_SEQ'); drLastSeq = $drBase; forwarderLastSeq = $fwLastSeq }
     if ($rpo.oldLastSeq -and $rpo.drLastSeq) {
         $o = $rpo.oldLastSeq.Split('|'); $d = $rpo.drLastSeq.Split('|')
         $rpo.lostTransactions = [int64]$o[0] - [int64]$d[0]
         if ($o[1] -ne '-' -and $d[1] -ne '-') { $rpo.lostWindowSeconds = [math]::Round(((ConvertTo-Utc $o[1]) - (ConvertTo-Utc $d[1])).TotalSeconds, 3) }
         Write-Host "  RPO: $($rpo.lostTransactions) committed transaction(s) lost, window $($rpo.lostWindowSeconds) s" -ForegroundColor Yellow
     }
-    if ($fwLastSeq) { Write-Host "  Forwarder had received up to ledger row $fwLastSeq before the outage." }
     Save-Evidence 'rpo' $rpo
 
-    # 4. Preserve + drop the stale copy (distributed AG definition first).
+    # 4. Preserve + drop the stale copy (every distributed AG definition first).
     $keep = if ($SkipOrphanBackup) { 'NOT preserved (-SkipOrphanBackup)' } else { 'preserved as COPY_ONLY backups in /var/opt/mssql/backup' }
-    Write-Host "  Next: $(if ($HasDag) { "$DagName and " })$AgName and its databases on $($Orig.Name) are dropped (unsynchronized data $keep)," -ForegroundColor Yellow
+    Write-Host "  Next: $(if ($HasDag) { 'the stale distributed AG(s), ' })$AgName and its databases on $($Orig.Name) are dropped (unsynchronized data $keep)," -ForegroundColor Yellow
     Write-Host "  then it is re-added as an ASYNC secondary and re-seeded from $($Dr.Name)." -ForegroundColor Yellow
     Confirm-Yes "  Type 'yes' to continue"
     $prep = "mkdir -p /var/opt/mssql/backup && chown mssql:mssql /var/opt/mssql/backup`n"
     $drop = Invoke-Sql -Node $Orig -File '21-old-primary-preserve-and-drop.sql' -Label 'preserve + drop stale AG' -Prefix $prep -Vars @{
-        AgName = $AgName; DagName = $(if ($HasDag) { $DagName } else { 'none' }); BackupDir = '/var/opt/mssql/backup'
+        AgName = $AgName; DropDistributed = 1; BackupDir = '/var/opt/mssql/backup'
         RunId = (Get-RunIdOrNone); SkipBackup = $(if ($SkipOrphanBackup) { 1 } else { 0 }) }
     foreach ($k in @('PRESERVED', 'DAG_DROPPED', 'AG_OFFLINE', 'AG_DROPPED', 'DB_DROPPED')) { foreach ($v in (Get-Vals $drop $k)) { Write-Host "  $k = $v" } }
 
@@ -719,50 +863,36 @@ function Invoke-Reinstate {
     Add-Event 'rejoined'
     Wait-ReplicaState -On $Dr -Replica $Orig.Name -Accept @('SYNCHRONIZING', 'SYNCHRONIZED') -TimeoutMinutes 60 -What 'seeding'
 
-    # 7. Re-attach the forwarder AG to the new global primary.
-    $forwarderResult = 'n/a'
+    # 7. Re-attach every forwarder to the new global primary (idempotent for the ones failover
+    #    already re-attached), re-seeding those that can't resynchronize when -ReseedForwarder.
+    $forwarderResults = [ordered]@{}
     if ($HasDag) {
-        Write-Step "Re-attaching forwarder $FwAg to the global primary $($Dr.Name)"
-        $url = "tcp://$($Dr.PrivateIp):5022"
-        $req = @(New-SqlRequest -Node $Dr -File '13-dag-repoint.sql' -Label 'repoint (global primary)' -Vars @{ DagName = $DagName; MemberAg = $AgName; ListenerUrl = $url })
-        $req += New-SqlRequest -Node $FwPrimary -File '13-dag-repoint.sql' -Label 'repoint (forwarder)' -Vars @{ DagName = $DagName; MemberAg = $AgName; ListenerUrl = $url }
-        $rp = @(Invoke-VmBatch $req); Assert-Ok $rp
-        foreach ($r in $rp) { Write-Host "  DAG_REPOINTED = $(Get-Val $r 'DAG_REPOINTED')" }
-        # Resume data movement on the forwarder side (suspended by the forced failover upstream).
-        $res = @(Invoke-VmBatch @($ForwarderNodes | ForEach-Object { New-SqlRequest -Node $_ -File '33-demote-and-resume.sql' -Label 'resume' -Vars @{ AgName = $FwAg; Demote = 0 } }))
-        Assert-Ok $res
-        foreach ($r in $res) { foreach ($k in @('RESUMED', 'RESUME_SKIPPED')) { foreach ($v in (Get-Vals $r $k)) { Write-Host "  [$($r.Vm)] $k = $v" } } }
-
-        if (Wait-ForwarderSync -From $Dr -TimeoutMinutes $ForwarderResyncMinutes) {
-            $forwarderResult = 'resynchronized'
-            Write-Host "  Forwarder $FwAg is synchronizing from $($Dr.Name)." -ForegroundColor Green
-        } elseif ($ReseedForwarder) {
-            # The forwarder kept log the new global primary never had (it received it from the stale
-            # primary): rebuild the distributed AG, re-seeding the forwarder from the new global primary.
-            Write-Host "  Forwarder can't resynchronize - re-seeding it (-ReseedForwarder)." -ForegroundColor Yellow
-            $deployArgs = @('-Identifier', $Identifier, '-PrimaryNodeSuffix', $PrimaryNodeSuffix, '-SecondaryNodeSuffix', $SecondaryNodeSuffix,
-                            '-DagForwarderPrimarySuffix', $ForwarderPrimarySuffix, '-DagForwarderSecondarySuffix', $ForwarderSecondarySuffix,
-                            '-DagName', $DagName, '-AutoApprove')
-            & pwsh -NoProfile -File (Join-Path $ProjectDir 'deploy.ps1') -Action remove-dag @deployArgs
-            & pwsh -NoProfile -File (Join-Path $ProjectDir 'deploy.ps1') -Action deploy-dag @deployArgs
-            if ($LASTEXITCODE -ne 0) { Write-Error 'deploy-dag failed while re-seeding the forwarder.'; exit 1 }
-            $forwarderResult = 're-seeded'
-        } else {
-            $forwarderResult = 'NOT synchronizing'
-            Write-Host ''
-            Write-Host "  Forwarder $FwAg did not resynchronize within $ForwarderResyncMinutes min. It most likely holds" -ForegroundColor Red
-            Write-Host '  transactions the new global primary never received. Re-run with -ReseedForwarder, or run' -ForegroundColor Red
-            Write-Host '  ../../deploy.ps1 -Action remove-dag, then -Action deploy-dag.' -ForegroundColor Red
+        Write-Step "Re-attaching forwarder(s) to the global primary $($Dr.Name)"
+        Invoke-DagRepoint -GlobalPrimary $Dr -Fws $ForwarderList -Url "tcp://$($Dr.PrivateIp):5022" | Out-Null
+        Resume-Forwarders $ForwarderList
+        $pending = @(Wait-ForwardersSync -From $Dr -Fws $ForwarderList -TimeoutMinutes $ForwarderResyncMinutes)
+        foreach ($f in $ForwarderList) {
+            if (-not ($pending | Where-Object { $_.Dag -eq $f.Dag })) { $forwarderResults[$f.Dag] = 'resynchronized'; continue }
+            if ($ReseedForwarder) {
+                # The forwarder kept log the new global primary never had: rebuild its distributed AG,
+                # which re-seeds it from the new global primary.
+                Invoke-ReseedForwarder $f
+                $forwarderResults[$f.Dag] = 're-seeded'
+            } else {
+                $forwarderResults[$f.Dag] = 'NOT synchronizing'
+                Write-Host "  $($f.Dag): $($f.Ag) did not resynchronize within $ForwarderResyncMinutes min - it most likely holds" -ForegroundColor Red
+                Write-Host '  transactions the new global primary never received. Re-run with -ReseedForwarder.' -ForegroundColor Red
+            }
         }
-        Add-Event 'forwarder-reattached' $forwarderResult
+        Add-Event 'forwarders-reattached' (($forwarderResults.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join '; ')
     }
 
     # 8. Lift the client fence: node-1 is now a readable secondary.
     Set-Fence -Remove -Only @('uc01-fence-deny-sql')
-    Save-Evidence 'reinstate' ([ordered]@{ utc = (Format-Utc (Get-UtcNow)); inspect = $insp[0].Stdout; drop = $drop.Stdout; rpo = $rpo; forwarder = $forwarderResult })
+    Save-Evidence 'reinstate' ([ordered]@{ utc = (Format-Utc (Get-UtcNow)); inspect = $insp[0].Stdout; drop = $drop.Stdout; rpo = $rpo; forwarders = $forwarderResults })
     Write-Host ''
     Write-Host "  $($Orig.Name) is back as an ASYNCHRONOUS secondary of $($Dr.Name) (primary stays in $($Dr.Region))." -ForegroundColor Green
-    if ($HasDag) { Write-Host "  Forwarder $FwAg : $forwarderResult." -ForegroundColor $(if ($forwarderResult -eq 'NOT synchronizing') { 'Red' } else { 'Green' }) }
+    foreach ($e in $forwarderResults.GetEnumerator()) { Write-Host "  $($e.Key): $($e.Value)" -ForegroundColor $(if ($e.Value -eq 'NOT synchronizing') { 'Red' } else { 'Green' }) }
     Write-Host "  Optional: -Action failback to make $($Orig.Name) primary again (planned, no data loss)."
 }
 
@@ -791,15 +921,10 @@ function Invoke-Failback {
     $t1 = Get-UtcNow
 
     if ($HasDag) {
-        # The global primary moved with AG1's primary: repoint on the global primary and the forwarder.
-        $url = "tcp://$($Orig.PrivateIp):5022"
-        $req = @(New-SqlRequest -Node $Orig -File '13-dag-repoint.sql' -Label 'repoint (global primary)' -Vars @{ DagName = $DagName; MemberAg = $AgName; ListenerUrl = $url })
-        $req += New-SqlRequest -Node $FwPrimary -File '13-dag-repoint.sql' -Label 'repoint (forwarder)' -Vars @{ DagName = $DagName; MemberAg = $AgName; ListenerUrl = $url }
-        $rp = @(Invoke-VmBatch $req); Assert-Ok $rp
-        foreach ($r in $rp) { Write-Host "  DAG_REPOINTED = $(Get-Val $r 'DAG_REPOINTED')" }
-        if (-not (Wait-ForwarderSync -From $Orig -TimeoutMinutes $ForwarderResyncMinutes)) {
-            Write-Host "  WARNING: forwarder $FwAg is not synchronizing from $($Orig.Name) yet - check status." -ForegroundColor Yellow
-        }
+        # The global primary moved with AG1's primary: repoint every distributed AG on both sides.
+        Invoke-DagRepoint -GlobalPrimary $Orig -Fws $ForwarderList -Url "tcp://$($Orig.PrivateIp):5022" | Out-Null
+        $pending = @(Wait-ForwardersSync -From $Orig -Fws $ForwarderList -TimeoutMinutes $ForwarderResyncMinutes)
+        foreach ($f in $pending) { Write-Host "  WARNING: $($f.Dag): forwarder $($f.Ag) is not synchronizing from $($Orig.Name) yet - check status." -ForegroundColor Yellow }
     }
     Set-DnsToIp -Ip $Orig.PrivateIp -Why 'failback'
     $w = Invoke-Sql -Node $Orig -File '12-write-test.sql' -Label 'write test' -Vars @{ DbName = $DemoDbName; RunId = (Get-RunIdOrNone); Rows = $WriteTestRows }
@@ -827,7 +952,7 @@ if (-not $Action) {
         -Options @('status', 'precheck', 'start-workload', 'simulate-failure', 'failover', 'verify', 'drill', 'reinstate', 'failback') `
         -Descriptions @('roles, health, power state', 'healthy AGs? open a new drill run', 'start the ledger writer on the primary',
                         'hard power-off of the primary region', 'force failover to the DR node', 'check new primary + write test',
-                        'precheck -> workload -> failure -> failover -> verify', 'bring the region back, rejoin, re-attach forwarder',
+                        'precheck -> workload -> failure -> failover -> verify', 'bring the region back, rejoin, re-attach forwarders',
                         'planned failback to the original primary')
 }
 if (-not $Identifier) {
@@ -837,31 +962,57 @@ if (-not $Identifier) {
 }
 if (-not $PrimaryNodeSuffix)   { $PrimaryNodeSuffix   = Read-Name -Prompt 'AG1 primary node suffix - the node in the region that FAILS' -Default 'node-1' -MaxLength 20 }
 if (-not $SecondaryNodeSuffix) { $SecondaryNodeSuffix = Read-Name -Prompt 'AG1 DR node suffix - the node in the alternate region' -Default 'node-2' -MaxLength 20 }
-if (-not $ForwarderPrimarySuffix) {
-    $ForwarderPrimarySuffix = Read-Name -Prompt "Distributed AG forwarder stack - primary node suffix ('none' if there's no distributed AG)" -Default 'node-3' -MaxLength 20
-}
-if ($ForwarderPrimarySuffix -ne 'none' -and -not $ForwarderSecondarySuffix) {
-    $ForwarderSecondarySuffix = Read-Name -Prompt 'Distributed AG forwarder stack - secondary node suffix' -Default 'node-4' -MaxLength 20
-}
 $Identifier = $Identifier.ToLower(); $PrimaryNodeSuffix = $PrimaryNodeSuffix.ToLower(); $SecondaryNodeSuffix = $SecondaryNodeSuffix.ToLower()
-$ForwarderPrimarySuffix = $ForwarderPrimarySuffix.ToLower(); $ForwarderSecondarySuffix = $ForwarderSecondarySuffix.ToLower()
+
+# Forwarder stacks: -Forwarders pairs, the single-pair shorthand, or asked for.
+$fwPairs = @($Forwarders | ForEach-Object { $_ -split '[,\s]+' } | Where-Object { $_ })
+if ($ForwarderPrimarySuffix) {
+    if ($ForwarderPrimarySuffix -eq 'none') { $fwPairs += 'none' }
+    else {
+        if (-not $ForwarderSecondarySuffix) { $ForwarderSecondarySuffix = Read-Name -Prompt "Forwarder stack $ForwarderPrimarySuffix - secondary node suffix" -Default '' -MaxLength 20 }
+        $fwPairs += "${ForwarderPrimarySuffix}:${ForwarderSecondarySuffix}"
+    }
+}
+if ($fwPairs.Count -eq 0) {
+    Write-Host ''
+    Write-Host "Distributed AGs: AG1's forwarder stacks as primary:secondary suffix pairs, comma-separated" -ForegroundColor Cyan
+    Write-Host "(e.g. node-3:node-4,node-5:node-6), or 'none'. Declare every forwarder of AG1." -ForegroundColor Cyan
+    $answer = (Read-Line 'Forwarder stacks [node-3:node-4]').ToLower()
+    if (-not $answer) { $answer = 'node-3:node-4' }
+    $fwPairs = @($answer -split '[,\s]+' | Where-Object { $_ })
+}
+$fwPairs = @($fwPairs | ForEach-Object { $_.ToLower() } | Where-Object { $_ -ne 'none' } | Select-Object -Unique)
 
 $NamePrefix = "$Prefix-$Identifier"
 if (-not $AgName) { $AgName = "agsqlvm-$PrimaryNodeSuffix" }
-$HasDag = $ForwarderPrimarySuffix -ne 'none'
-$FwAg   = if ($HasDag) { "agsqlvm-$ForwarderPrimarySuffix" } else { $null }
-if ($HasDag -and -not $DagName) { $DagName = "dagsqlvm-$PrimaryNodeSuffix-$ForwarderPrimarySuffix" }
+if ($DagName -and $fwPairs.Count -ne 1) { Write-Error '-DagName can only be used with exactly one forwarder stack.'; exit 1 }
 
 $Orig = New-UcNode -Role 'AG1 primary' -Suffix $PrimaryNodeSuffix   -StackPrimary $PrimaryNodeSuffix -StackSecondary $SecondaryNodeSuffix -Ag $AgName
 $Dr   = New-UcNode -Role 'AG1 DR'      -Suffix $SecondaryNodeSuffix -StackPrimary $PrimaryNodeSuffix -StackSecondary $SecondaryNodeSuffix -Ag $AgName
-$ForwarderNodes = @()
-if ($HasDag) {
-    $ForwarderNodes = @(
-        (New-UcNode -Role 'AG2 forwarder' -Suffix $ForwarderPrimarySuffix   -StackPrimary $ForwarderPrimarySuffix -StackSecondary $ForwarderSecondarySuffix -Ag $FwAg),
-        (New-UcNode -Role 'AG2 secondary' -Suffix $ForwarderSecondarySuffix -StackPrimary $ForwarderPrimarySuffix -StackSecondary $ForwarderSecondarySuffix -Ag $FwAg))
+
+$ForwarderList = @()
+$usedSuffixes  = @($PrimaryNodeSuffix, $SecondaryNodeSuffix)
+foreach ($pair in $fwPairs) {
+    $parts = $pair.Split(':')
+    if ($parts.Count -ne 2 -or $parts[0] -cnotmatch $SuffixPattern -or $parts[1] -cnotmatch $SuffixPattern) {
+        Write-Error "Invalid forwarder pair '$pair' - use <primary suffix>:<secondary suffix>, e.g. node-3:node-4."; exit 1
+    }
+    if ($usedSuffixes -contains $parts[0] -or $usedSuffixes -contains $parts[1] -or $parts[0] -eq $parts[1]) {
+        Write-Error "Forwarder pair '$pair' reuses a node suffix."; exit 1
+    }
+    $usedSuffixes += $parts
+    $fwAg = "agsqlvm-$($parts[0])"
+    $pn = New-UcNode -Role "$fwAg forwarder" -Suffix $parts[0] -StackPrimary $parts[0] -StackSecondary $parts[1] -Ag $fwAg
+    $sn = New-UcNode -Role "$fwAg secondary" -Suffix $parts[1] -StackPrimary $parts[0] -StackSecondary $parts[1] -Ag $fwAg
+    $ForwarderList += [pscustomobject]@{
+        PrimarySuffix = $parts[0]; SecondarySuffix = $parts[1]; Ag = $fwAg
+        Dag = $(if ($DagName) { $DagName } else { "dagsqlvm-$PrimaryNodeSuffix-$($parts[0])" })
+        Primary = $pn; Secondary = $sn; Nodes = @($pn, $sn); InFailedRegion = ($pn.Region -eq $Orig.Region)
+    }
 }
-$FwPrimary = if ($HasDag) { $ForwarderNodes[0] } else { $null }
-$AllNodes  = @($Orig, $Dr) + @($ForwarderNodes)
+$HasDag         = $ForwarderList.Count -gt 0
+$ForwarderNodes = @($ForwarderList | ForEach-Object { $_.Nodes })
+$AllNodes       = @($Orig, $Dr) + @($ForwarderNodes)
 # A region failure takes down every node in the primary's region - AG1's primary and any forwarder node there.
 $RegionNodes = @($AllNodes | Where-Object { $_.Region -eq $Orig.Region -and $_.Vm -ne $Dr.Vm })
 
@@ -882,7 +1033,10 @@ $LogFile = Join-Path $RunsRoot "$Action-$((Get-UtcNow).ToString('yyyyMMdd-HHmmss
 Start-Transcript -Path $LogFile | Out-Null
 try {
     Write-Host "AG1 $AgName : $($Orig.Name) ($($Orig.Region), primary) -> $($Dr.Name) ($($Dr.Region), DR)"
-    if ($HasDag) { Write-Host "Distributed AG $DagName : $AgName -> $FwAg ($(($ForwarderNodes | ForEach-Object { "$($_.Name) $($_.Region)" }) -join ', '))" }
+    foreach ($f in $ForwarderList) {
+        Write-Host ("Distributed AG {0} : {1} -> {2} ({3}, {4}){5}" -f $f.Dag, $AgName, $f.Ag, $f.Primary.Region,
+            (($f.Nodes | ForEach-Object { $_.Name }) -join ' + '), $(if ($f.InFailedRegion) { ' - fails with the region' } else { ' - survives' }))
+    }
     Write-Host "Failure domain (region $($Orig.Region)): $(($RegionNodes | ForEach-Object { $_.Name }) -join ', ')"
     if ($script:RunId) { Write-Host "Current drill run: $($script:RunId)" }
 
@@ -912,7 +1066,8 @@ try {
             Invoke-Verify
             Write-Host ''
             Write-Host "Drill complete. Evidence: $(Get-RunDir)" -ForegroundColor Green
-            Write-Host "When region $($Orig.Region) is 'back': ./uc-01.ps1 -Action reinstate -Identifier $Identifier -PrimaryNodeSuffix $PrimaryNodeSuffix -SecondaryNodeSuffix $SecondaryNodeSuffix -ForwarderPrimarySuffix $ForwarderPrimarySuffix -ForwarderSecondarySuffix $ForwarderSecondarySuffix"
+            $fwArg = if ($HasDag) { " -Forwarders $(($ForwarderList | ForEach-Object { "$($_.PrimarySuffix):$($_.SecondarySuffix)" }) -join ',')" } else { ' -Forwarders none' }
+            Write-Host "When region $($Orig.Region) is 'back': ./uc-01.ps1 -Action reinstate -Identifier $Identifier -PrimaryNodeSuffix $PrimaryNodeSuffix -SecondaryNodeSuffix $SecondaryNodeSuffix$fwArg"
         }
     }
 } finally {

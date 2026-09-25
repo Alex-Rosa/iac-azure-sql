@@ -16,6 +16,10 @@
     resolution promotes AG1's DR node, which also becomes the global primary of every distributed
     AG: surviving forwarders are repointed to it immediately, the others when region A recovers.
 
+    Every action of a drill run also appends dashboard events to runs/<rg>/<run-id>/events.jsonl
+    (phases, node roles, links, RTO/RPO): watch it live or replay it later with
+    ../../dashboard/dashboard.ps1 (-Dashboard opens it for you).
+
     Actions (asked for when not passed):
       status            Power state + AG / distributed AG health of every node.
       precheck          Starts deallocated VMs (after confirmation), checks every AG and distributed AG
@@ -40,6 +44,8 @@
     ./uc-01.ps1                                   # interactive
 .EXAMPLE
     ./uc-01.ps1 -Action drill -Identifier ag01 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -Forwarders ag02:node-3:node-4,ag03:node-5:node-6
+.EXAMPLE
+    ./uc-01.ps1 -Action drill -Dashboard -DashboardMode both -Identifier ag01 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -Forwarders ag02:node-3:node-4,ag03:node-5:node-6
 .EXAMPLE
     ./uc-01.ps1 -Action reinstate -Identifier ag01 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -Forwarders ag02:node-3:node-4,ag03:node-5:node-6
 #>
@@ -79,7 +85,14 @@ param(
     [switch]$SkipOrphanBackup,
     [switch]$ReseedForwarder,   # reinstate: re-seed (drop + recreate the distributed AG of) a forwarder that can't resynchronize
     [switch]$Force,
-    [switch]$AutoApprove
+    [switch]$AutoApprove,
+
+    # Opens the live dashboard (../../dashboard/dashboard.ps1) in its own window before the action runs.
+    [switch]$Dashboard,
+    [ValidateSet('web', 'terminal', 'both')]
+    [string]$DashboardMode = 'web',
+    [ValidateRange(1, 60)]
+    [int]$DashboardRefreshSeconds = 3
 )
 
 Set-StrictMode -Version Latest
@@ -94,6 +107,12 @@ $FenceRules = @(
     @{ Name = 'uc01-fence-deny-sql';      Direction = 'Inbound';  Port = '1433'; Priority = 100 },
     @{ Name = 'uc01-fence-deny-hadr-in';  Direction = 'Inbound';  Port = '5022'; Priority = 101 },
     @{ Name = 'uc01-fence-deny-hadr-out'; Direction = 'Outbound'; Port = '5022'; Priority = 100 })
+
+# Dashboard events (phases, nodes, links, metrics) - see ../common/uc-events.ps1.
+. (Join-Path $PSScriptRoot '..' 'common' 'uc-events.ps1')
+Set-UcEventSink { Get-RunDir }
+$script:UcSessionStarted = $false
+$script:UcCancelled      = $false
 
 # ── Console input ──────────────────────────────────────────────────────────────
 function Read-Line {
@@ -135,7 +154,7 @@ function Read-Name {
 function Confirm-Yes {
     param([string]$Prompt)
     if ($AutoApprove) { return }
-    if ((Read-Host $Prompt) -ne 'yes') { Write-Host 'Cancelled.'; exit 0 }
+    if ((Read-Host $Prompt) -ne 'yes') { Write-Host 'Cancelled.'; $script:UcCancelled = $true; exit 0 }
 }
 
 function Write-Step { param([string]$Text) Write-Host ''; Write-Host "=== $Text ===" -ForegroundColor Cyan }
@@ -175,10 +194,33 @@ function Read-Evidence {
 }
 
 function Add-Event {
-    param([string]$Name, [string]$Detail = '')
-    $line = [ordered]@{ utc = (Format-Utc (Get-UtcNow)); event = $Name; detail = $Detail } | ConvertTo-Json -Compress
-    $dir = Get-RunDir
-    if ($dir) { Add-Content -Path (Join-Path $dir 'events.jsonl') -Value $line }
+    param([string]$Name, [string]$Detail = '', [string]$Level = 'info')
+    Write-UcEvent -Event $Name -Detail $Detail -Level $Level
+}
+
+# Opens the dashboard session of this process: topology (merged by the dashboard - a later session,
+# e.g. reinstate, keeps the roles/links the previous actions left) + 'action started'.
+function Start-UcSession {
+    if ($script:UcSessionStarted -or -not $script:RunId) { return }
+    $script:UcSessionStarted = $true
+    $initialRole = @{ $Orig.Name = 'PRIMARY'; $Dr.Name = 'SECONDARY' }
+    $groups = @(@{ id = $AgName; label = 'AG1'; kind = 'global' })
+    $links  = @(@{ id = "ag-$AgName"; kind = 'ag'; from = $Orig.Name; to = $Dr.Name; label = 'AG1'; state = 'healthy' })
+    for ($i = 0; $i -lt $ForwarderList.Count; $i++) {
+        $f = $ForwarderList[$i]
+        $initialRole[$f.Primary.Name] = 'FORWARDER'; $initialRole[$f.Secondary.Name] = 'SECONDARY'
+        $groups += @{ id = $f.Ag; label = "AG$($i + 2)"; kind = 'forwarder'; dag = $f.Dag }
+        $links  += @{ id = "ag-$($f.Ag)"; kind = 'ag'; from = $f.Primary.Name; to = $f.Secondary.Name; label = "AG$($i + 2)"; state = 'healthy' }
+        $links  += @{ id = $f.Dag; kind = 'dag'; from = $Orig.Name; to = $f.Primary.Name; label = "DAG -> AG$($i + 2)"; state = 'healthy' }
+    }
+    $nodes = @($AllNodes | ForEach-Object {
+        @{ id = $_.Name; label = $_.Suffix; name = $_.Name; vm = $_.Vm; rg = $_.Rg; region = $_.Region; ip = $_.PrivateIp
+           group = $_.Ag; stack = $_.Identifier; role = $initialRole[$_.Name]; global = ($_.Name -eq $Orig.Name) }
+    })
+    $regions = @(@($Orig.Region, $Dr.Region) + @($AllNodes | ForEach-Object { $_.Region }) | Select-Object -Unique)
+    Write-UcTopology -UseCase 'uc-01' -Nodes $nodes -Groups $groups -Links $links -Regions $regions -Params @{
+        failedRegion = $Orig.Region; drRegion = $Dr.Region; primary = $Orig.Suffix; dr = $Dr.Suffix; ag = $AgName }
+    Set-UcAction -Action $Action -Status started
 }
 
 function Get-RunIdOrNone { if ($script:RunId) { $script:RunId } else { 'none' } }
@@ -475,6 +517,11 @@ function Invoke-Status {
 
 function Invoke-Precheck {
     Write-Step 'Pre-check: every node running, AGs and distributed AGs healthy'
+    # A new run starts here (current-run.txt only moves to it once the pre-check passes), so the
+    # dashboard can follow the pre-check itself.
+    $script:RunId = (Get-UtcNow).ToString('yyyyMMdd-HHmmss')
+    Start-UcSession
+    Set-UcPhase precheck running
     Update-PowerStates
     $down = @($AllNodes | Where-Object { $_.Power -ne 'running' })
     if ($down.Count -gt 0) {
@@ -485,6 +532,11 @@ function Invoke-Precheck {
     }
     $st = Get-StatusAll $AllNodes
     foreach ($n in $AllNodes) { Show-NodeStatus $n $st[$n.Vm] }
+    foreach ($n in $AllNodes) {
+        $localRole = Get-Val $st[$n.Vm] 'LOCAL_ROLE'
+        if ($localRole -eq 'PRIMARY' -and $n.Ag -ne $AgName) { $localRole = 'FORWARDER' }
+        Set-UcNode -Node $n.Name -Power $n.Power -Role $(if ($localRole) { $localRole } else { 'UNKNOWN' }) -Global ($n.Name -eq $Orig.Name -and $localRole -eq 'PRIMARY')
+    }
 
     $problems = @()
     $o = $st[$Orig.Vm]; $d = $st[$Dr.Vm]
@@ -512,14 +564,14 @@ function Invoke-Precheck {
     }
     if ($problems.Count -gt 0) {
         Write-Host ''
-        $problems | ForEach-Object { Write-Host "  PROBLEM: $_" -ForegroundColor Red }
+        $problems | ForEach-Object { Write-Host "  PROBLEM: $_" -ForegroundColor Red; Add-Event 'precheck-problem' $_ -Level 'error' }
         Write-Error 'Pre-check failed - fix the AGs before running the drill.'
         exit 1
     }
 
-    $script:RunId = (Get-UtcNow).ToString('yyyyMMdd-HHmmss')
     Set-Content -Path $CurrentRunFile -Value $script:RunId
     Add-Event 'precheck-passed'
+    foreach ($l in (@("ag-$AgName") + @($ForwarderList | ForEach-Object { "ag-$($_.Ag)"; $_.Dag }))) { Set-UcLink -Link $l -State 'healthy' }
     Invoke-Sql -Node $Orig -File '01-prepare-workload.sql' -Vars @{ DbName = $DemoDbName } -Label 'create ledger table' | Out-Null
     Save-Evidence 'precheck' ([ordered]@{
         runId = $script:RunId; utc = (Format-Utc (Get-UtcNow)); ag = $AgName
@@ -530,11 +582,13 @@ function Invoke-Precheck {
     })
     Write-Host ''
     Write-Host "  Pre-check passed. Drill run id: $($script:RunId)  (evidence: $(Get-RunDir))" -ForegroundColor Green
+    Set-UcPhase precheck done "every AG and distributed AG healthy - run $($script:RunId)"
 }
 
 function Invoke-StartWorkload {
     Assert-Run
     Write-Step "Starting the transaction writer on $($Orig.Name)"
+    Set-UcPhase workload running
     $body = @'
 cat > /var/tmp/uc01-writer.sh <<'WRITER'
 #!/bin/bash
@@ -563,6 +617,8 @@ SQL -d '__DB__' -Q "SET NOCOUNT ON; SELECT 'LEDGER_ROWS=' + CAST(COUNT(*) AS var
     $rows = Get-Val $r 'LEDGER_ROWS'
     if (-not (Get-Val $r 'WRITER_PID') -or [int]$rows -le 0) { Write-Error "Writer didn't start (rows=$rows)."; exit 1 }
     Add-Event 'workload-started' "rows after 8 s: $rows"
+    Set-UcMetric workloadRows ([int]$rows) -Detail "$rows ledger rows committed 8 s after the writer started"
+    Set-UcPhase workload done "writer committing ~5 rows/s on $($Orig.Name)"
     Write-Host "  Writer running (pid $(Get-Val $r 'WRITER_PID')), $rows rows committed so far, lifetime $WorkloadSeconds s." -ForegroundColor Green
 }
 
@@ -573,16 +629,28 @@ function Invoke-SimulateFailure {
     $victims | ForEach-Object { Write-Host "  $($_.Vm) [$($_.Role)]" }
     Write-Host '  No guest shutdown: SQL Server stops mid-transaction, exactly like losing the region.' -ForegroundColor Yellow
     Confirm-Yes "  Type 'yes' to power them off now"
+    Set-UcPhase failure running
     $t0 = Get-UtcNow
     Add-Event 'failure-injected' ("az vm stop --skip-shutdown " + (($victims | ForEach-Object { $_.Vm }) -join ', '))
+    Set-UcClock outage start -At $t0 -Detail "region $($Orig.Region) lost"
     foreach ($n in $victims) { az vm stop -g $n.Rg -n $n.Vm --skip-shutdown --no-wait -o none }
+    foreach ($n in $victims) { Set-UcNode -Node $n.Name -Power 'stopping' }
+    # The global primary is gone: AG1 and every distributed AG lose their source; forwarder AGs in
+    # the region lose both of their nodes.
+    Set-UcLink "ag-$AgName" down
+    foreach ($f in $ForwarderList) {
+        Set-UcLink $f.Dag down
+        if ($f.InFailedRegion) { Set-UcLink "ag-$($f.Ag)" down }
+    }
     $offAt = [ordered]@{}
     foreach ($n in $victims) {
         az vm wait -g $n.Rg -n $n.Vm --custom "instanceView.statuses[?code=='PowerState/stopped']" --timeout 600 -o none 2>$null
         if ((Get-PowerState $n) -ne 'stopped') { Write-Error "$($n.Vm) did not power off."; exit 1 }
         $offAt[$n.Name] = Format-Utc (Get-UtcNow)
+        Set-UcNode -Node $n.Name -Power 'stopped'
         Write-Host "  $($n.Vm) powered off."
     }
+    Set-UcPhase failure done "$($victims.Count) VM(s) in $($Orig.Region) powered off"
     Save-Evidence 'failure' ([ordered]@{
         method = 'az vm stop --skip-shutdown (hard power-off, VMs stay allocated)'; region = $Orig.Region
         vms = @($victims | ForEach-Object { $_.Vm }); requestedUtc = (Format-Utc $t0)
@@ -596,6 +664,7 @@ function Invoke-Failover {
     if ((Get-PowerState $Dr) -ne 'running') { Write-Error "DR node $($Dr.Vm) is not running - it must be to take over."; exit 1 }
 
     # 1. Detection: the DR replica must have lost the primary (retries ~60 s - AG session timeout is ~10 s).
+    if ((Get-UcRunningPhase) -ne 'detect') { Set-UcPhase detect running }
     $snap = $null; $role = $null; $primaryState = $null
     for ($i = 1; $i -le 3; $i++) {
         $snap = Invoke-Sql -Node $Dr -File '10-dr-snapshot.sql' -Label 'DR snapshot' -Vars @{ AgName = $AgName; DbName = $DemoDbName; RunId = (Get-RunIdOrNone) }
@@ -608,10 +677,14 @@ function Invoke-Failover {
     foreach ($l in (Get-Vals $snap 'DB_LAST_COMMIT')) { Write-Host "  last replicated commit: $l" }
     $drLastSeq = Get-Val $snap 'DR_LAST_SEQ'
     if ($drLastSeq) { Write-Host "  last ledger row on DR: $drLastSeq" }
+    if ($drLastSeq) { Set-UcMetric drLastSeq ([int64]$drLastSeq.Split('|')[0]) -Detail "last ledger row replicated to $($Dr.Name) before the failover: $drLastSeq" }
+    $detectStatus = if ($role -eq 'PRIMARY' -or $primaryState -eq 'DISCONNECTED' -or $Force) { 'done' } else { 'failed' }
+    Set-UcPhase detect $detectStatus "$($Dr.Name): role $role, connection to the primary $primaryState"
 
     $times = $null
     if ($role -eq 'PRIMARY') {
         Write-Host "  $($Dr.Name) is already PRIMARY - skipping to the distributed AG + verification steps." -ForegroundColor Yellow
+        Set-UcPhase failover skipped "$($Dr.Name) is already PRIMARY"
     } else {
         # Only an explicit DISCONNECTED (the DR replica's own connection to the primary) counts as a
         # lost primary - CONNECTED or UNKNOWN never trigger a forced failover without -Force.
@@ -630,6 +703,7 @@ or pass -Force if the primary is truly unusable although still connected.
         Confirm-Yes "  Type 'yes' to fail over to $($Dr.Name)"
 
         # 2. Promote + remove the lost replica.
+        Set-UcPhase failover running
         $t0 = Get-UtcNow
         Add-Event 'failover-started'
         $fo = Invoke-Sql -Node $Dr -File '11-force-failover.sql' -Vars @{ AgName = $AgName; OldPrimary = $Orig.Name } -Label 'force failover'
@@ -638,12 +712,18 @@ or pass -Force if the primary is truly unusable although still connected.
         foreach ($k in @('FORCED_FAILOVER', 'REMOVED_REPLICA', 'RESUMED', 'LOCAL_ROLE')) { foreach ($v in (Get-Vals $fo $k)) { Write-Host "  $k = $v" } }
         if ((Get-Val $fo 'LOCAL_ROLE') -ne 'PRIMARY') { Write-Error "$($Dr.Name) did not become PRIMARY."; exit 1 }
         $times = @{ started = $t0; completed = $t1 }
+        Set-UcNode -Node $Dr.Name -Role 'PRIMARY' -Global $true
+        Set-UcNode -Node $Orig.Name -Role 'REMOVED' -Global $false -Detail "$($Orig.Name) removed from $AgName (can't come back as a second primary)"
+        Set-UcLink "ag-$AgName" removed
+        Set-UcMetric failoverSeconds ([math]::Round(($t1 - $t0).TotalSeconds, 1)) 's'
+        Set-UcPhase failover done "$($Dr.Name) is PRIMARY of $AgName"
     }
 
     # 3. Prove the alternate region accepts transactions (retries while databases finish recovery).
     #    This comes before the distributed AG repoint: applications don't need it to write, and every
     #    Run Command round trip (~30 s) would otherwise be added to the RTO.
     $write = $null
+    Set-UcPhase writetest running
     for ($i = 1; $i -le 6; $i++) {
         $write = Invoke-Sql -Node $Dr -File '12-write-test.sql' -Label 'write test' -AllowFail `
             -Vars @{ DbName = $DemoDbName; RunId = (Get-RunIdOrNone); Rows = $WriteTestRows }
@@ -660,15 +740,21 @@ or pass -Force if the primary is truly unusable although still connected.
     # Run Command round trip that reports it back is not part of the outage.
     $writeCommitUtc = $null
     $wparts = "$(Get-Val $write 'WRITE_OK')".Split('|')
-    if ($wparts.Count -ge 3 -and $wparts[2]) { $writeCommitUtc = ConvertTo-Utc $wparts[2] }
+    if ($wparts.Count -ge 3 -and $wparts[2]) { try { $writeCommitUtc = ConvertTo-Utc $wparts[2] } catch { $writeCommitUtc = $null } }   # unparsable: RTO falls back to the tool's clock
     # The last pre-failure row the DR node really has, read AFTER recovery: the pre-failover snapshot
     # can miss rows that were hardened on DR but not yet redone (readable-secondary lag).
     $drLastSeqAfter = $null
     $pre = @(Get-Vals $write 'LEDGER' | Where-Object { $_ -like 'pre-failure|*' }) | Select-Object -First 1
     if ($pre -and $pre -match 'max_seq=(\d+)\|last=([^|]+)') { $drLastSeqAfter = "$($Matches[1])|$($Matches[2])" }
 
+    Set-UcClock outage stop -At $(if ($writeCommitUtc) { $writeCommitUtc } else { $tWrite }) -Detail "first write committed on $($Dr.Name)"
+    Set-UcPhase writetest done "$WriteTestRows rows committed on $($Dr.Name)"
+
     # 4. Redirect clients.
+    Set-UcPhase redirect running
     Set-DnsToIp -Ip $Dr.PrivateIp -Why 'failover'
+    if ($PrivateDnsZone) { Set-UcMetric dnsUpdated $true; Set-UcPhase redirect done "$PrivateDnsRecord.$PrivateDnsZone -> $($Dr.PrivateIp)" }
+    else { Set-UcMetric dnsUpdated 'n/a' -Detail 'no -PrivateDnsZone: clients repointed outside the drill'; Set-UcPhase redirect skipped 'no -PrivateDnsZone given' }
 
     # 5. RTO = failure injected (power-off requested: the VMs stop within ~2 s, 'az vm wait' only
     #    confirms it ~30 s later) -> first write committed on DR, by SQL Server's clock.
@@ -679,15 +765,23 @@ or pass -Force if the primary is truly unusable although still connected.
         $rto = [math]::Round(($end - (ConvertTo-Utc $failure.requestedUtc)).TotalSeconds, 1)
         $rtoObserved = [math]::Round(($tWrite - (ConvertTo-Utc $failure.requestedUtc)).TotalSeconds, 1)
     }
-    if ($null -ne $rto) { Write-Host "  RTO (failure injected -> first write committed on DR): $rto s  (tool observed: $rtoObserved s)" -ForegroundColor Green }
+    if ($null -ne $rto) {
+        Write-Host "  RTO (failure injected -> first write committed on DR): $rto s  (tool observed: $rtoObserved s)" -ForegroundColor Green
+        Set-UcMetric rto $rto 's' -Detail "failure injected -> first write committed on $($Dr.Name) (tool observed: $rtoObserved s)"
+    }
 
     # 6. The new primary of AG1 is the global primary of every distributed AG: point AG1's
     #    LISTENER_URL at it (global side; the forwarder side follows below / in 'reinstate').
     $drUrl = "tcp://$($Dr.PrivateIp):5022"
     $dagRepoint = @()
     if ($HasDag) {
+        Set-UcPhase dag running
         $dagRepoint = @(Invoke-DagRepoint -GlobalPrimary $Dr -Fws $ForwarderList -Url $drUrl -GlobalSideOnly)
         Add-Event 'dag-repointed' ($dagRepoint -join '; ')
+        foreach ($f in $ForwarderList) { Set-UcLink -Link $f.Dag -From $Dr.Name -State $(if ($f.InFailedRegion) { 'down' } else { 'suspended' }) }
+        Set-UcPhase dag done "$($ForwarderList.Count) distributed AG(s) now sourced from $($Dr.Name)"
+    } else {
+        Set-UcPhase dag skipped 'no distributed AG'
     }
 
     # 7. Forwarders outside the failed region are still up: re-attach them to the new global primary
@@ -695,8 +789,13 @@ or pass -Force if the primary is truly unusable although still connected.
     $forwarderResults = [ordered]@{}
     foreach ($f in $ForwarderList) { if ($f.InFailedRegion) { $forwarderResults[$f.Dag] = "down with $($Orig.Region) - re-attached by reinstate" } }
     $survivors = @($ForwarderList | Where-Object { -not $_.InFailedRegion -and (Get-PowerState $_.Primary) -eq 'running' })
+    if ($survivors.Count -eq 0) {
+        Set-UcMetric survivorsSync 'n/a' -Detail 'no forwarder outside the failed region'
+        Set-UcPhase forwarders skipped 'no forwarder outside the failed region'
+    }
     if ($survivors.Count -gt 0) {
         Write-Step "Re-attaching the surviving forwarder(s) to $($Dr.Name): $(($survivors | ForEach-Object { $_.Ag }) -join ', ')"
+        Set-UcPhase forwarders running
         Invoke-DagRepoint -GlobalPrimary $Dr -Fws $survivors -Url $drUrl | Out-Null
         Resume-Forwarders $survivors
         $pending = @(Wait-ForwardersSync -From $Dr -Fws $survivors -TimeoutMinutes $ForwarderResyncMinutes)
@@ -709,8 +808,11 @@ or pass -Force if the primary is truly unusable although still connected.
             } else {
                 $forwarderResults[$f.Dag] = 'synchronizing'
             }
+            Set-UcLink -Link $f.Dag -State $(if ($forwarderResults[$f.Dag] -eq 'synchronizing') { 'synchronizing' } else { 'not-synchronizing' })
         }
         Add-Event 'surviving-forwarders' (($forwarderResults.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join '; ')
+        Set-UcMetric survivorsSync ($pending.Count -eq 0) -Detail (($survivors | ForEach-Object { "$($_.Ag): $($forwarderResults[$_.Dag])" }) -join ', ')
+        Set-UcPhase forwarders $(if ($pending.Count -eq 0) { 'done' } else { 'failed' }) (($survivors | ForEach-Object { "$($_.Ag) $($forwarderResults[$_.Dag])" }) -join ', ')
     }
 
     # 8. Evidence. A rerun (already PRIMARY) keeps the original failover evidence intact.
@@ -731,6 +833,7 @@ or pass -Force if the primary is truly unusable although still connected.
 
 function Invoke-Verify {
     Write-Step "Verification on $($Dr.Name)"
+    Set-UcPhase verify running
     $body = (Get-SqlBody -File '00-status.sql' -Vars @{ AgName = $AgName })
     if ($HasDag) { $body += "`n" + (Get-DagStatusBody $ForwarderList) }
     $st = @(Invoke-VmBatch @(@{ Node = $Dr; Label = 'AG status'; Body = $body }))[0]
@@ -757,6 +860,8 @@ function Invoke-Verify {
         Write-Host "  $($f.Dag): $($Dr.Name) is the global primary; forwarder $($f.Ag) ($($f.Primary.Region)) $state." -ForegroundColor $(if ($state -eq 'NOT synchronizing') { 'Yellow' } else { 'Green' })
     }
     Save-Evidence 'verify' ([ordered]@{ utc = (Format-Utc (Get-UtcNow)); pass = ($pass -and $dagOk); status = $st.Stdout; writeTest = $write.Stdout })
+    Set-UcMetric verifyPass ([bool]($pass -and $dagOk))
+    Set-UcPhase verify $(if ($pass -and $dagOk) { 'done' } else { 'failed' }) $(if ($pass -and $dagOk) { "PASS - $($Dr.Name) PRIMARY, databases online and writable" } else { 'FAIL' })
     Write-Host ''
     if ($pass -and $dagOk) { Write-Host "  PASS - $($Dr.Name) is PRIMARY in $($Dr.Region), all AG databases ONLINE and writable." -ForegroundColor Green }
     else { Write-Host '  FAIL - see the status above.' -ForegroundColor Red }
@@ -799,13 +904,24 @@ function Invoke-Reinstate {
     #    primary of every distributed AG. Block clients (1433) and every AG endpoint connection (5022
     #    in/out) so neither applications nor any forwarder can talk to it.
     Write-Host "  Fencing $($Orig.Nsg): deny inbound 1433, inbound 5022, outbound 5022."
+    Set-UcPhase fence running
     Set-Fence
+    Set-UcNode -Node $Orig.Name -Fenced $true -Detail "$($Orig.Nsg): 1433 in, 5022 in/out denied"
+    Set-UcPhase fence done '1433 in, 5022 in and out denied'
 
     # 2. Bring the region back.
+    Set-UcPhase region running
     Update-PowerStates
+    Set-UcMetric fencedBeforeStart ($Orig.Power -ne 'running') -Detail "$($Orig.Name) was '$($Orig.Power)' when the fence went up"
     $toStart = @($RegionNodes | Where-Object { $_.Power -ne 'running' })
+    foreach ($n in $toStart) { Set-UcNode -Node $n.Name -Power 'starting' }
     if ($toStart.Count -gt 0) { Start-UcVms $toStart }
     Add-Event 'region-started' (($RegionNodes | ForEach-Object { $_.Vm }) -join ', ')
+    foreach ($n in $RegionNodes) { Set-UcNode -Node $n.Name -Power 'running' }
+    Set-UcNode -Node $Orig.Name -Role 'STALE PRIMARY' -Detail "$($Orig.Name) boots as PRIMARY of the old $AgName - fenced"
+    foreach ($f in @($ForwarderList | Where-Object { $_.InFailedRegion })) { Set-UcLink "ag-$($f.Ag)" healthy }
+    Set-UcPhase region done "$($RegionNodes.Count) VM(s) running in $($Orig.Region)"
+    Set-UcPhase rpo running
 
     # 3. Exact data loss: rows the old primary committed that never reached DR (and what the
     #    forwarders in the failed region received from it before the outage).
@@ -843,20 +959,32 @@ function Invoke-Reinstate {
         Write-Host "  RPO: $($rpo.lostTransactions) committed transaction(s) lost, window $($rpo.lostWindowSeconds) s" -ForegroundColor Yellow
     }
     Save-Evidence 'rpo' $rpo
+    if ($rpo.Contains('lostTransactions')) {
+        Set-UcMetric rpoTx $rpo.lostTransactions -Detail "last row on $($Orig.Name): $($rpo.oldLastSeq) | on $($Dr.Name): $($rpo.drLastSeq)"
+        if ($rpo.Contains('lostWindowSeconds')) { Set-UcMetric rpoWindow $rpo.lostWindowSeconds 's' }
+        Set-UcPhase rpo done "$($rpo.lostTransactions) transaction(s) lost"
+    } else {
+        Set-UcPhase rpo failed 'ledger not comparable (no failover evidence or old primary unreadable)'
+    }
 
     # 4. Preserve + drop the stale copy (every distributed AG definition first).
     $keep = if ($SkipOrphanBackup) { 'NOT preserved (-SkipOrphanBackup)' } else { 'preserved as COPY_ONLY backups in /var/opt/mssql/backup' }
     Write-Host "  Next: $(if ($HasDag) { 'the stale distributed AG(s), ' })$AgName and its databases on $($Orig.Name) are dropped (unsynchronized data $keep)," -ForegroundColor Yellow
     Write-Host "  then it is re-added as an ASYNC secondary and re-seeded from $($Dr.Name)." -ForegroundColor Yellow
     Confirm-Yes "  Type 'yes' to continue"
+    Set-UcPhase drop running
     $prep = "mkdir -p /var/opt/mssql/backup && chown mssql:mssql /var/opt/mssql/backup`n"
     $drop = Invoke-Sql -Node $Orig -File '21-old-primary-preserve-and-drop.sql' -Label 'preserve + drop stale AG' -Prefix $prep -Vars @{
         AgName = $AgName; DropDistributed = 1; BackupDir = '/var/opt/mssql/backup'
         RunId = (Get-RunIdOrNone); SkipBackup = $(if ($SkipOrphanBackup) { 1 } else { 0 }) }
     foreach ($k in @('PRESERVED', 'DAG_DROPPED', 'AG_OFFLINE', 'AG_DROPPED', 'DB_DROPPED')) { foreach ($v in (Get-Vals $drop $k)) { Write-Host "  $k = $v" } }
 
+    Set-UcNode -Node $Orig.Name -Role 'OUT OF AG' -Detail "stale $AgName and its databases dropped on $($Orig.Name) ($keep)"
+    Set-UcPhase drop done "stale copy dropped ($keep)"
+
     # 5. Stale copy is gone: node-1's endpoint may talk to the AG again (keep 1433 fenced until rejoined).
     Set-Fence -Remove -Only @('uc01-fence-deny-hadr-in', 'uc01-fence-deny-hadr-out')
+    Set-UcPhase rejoin running
 
     # 6. Re-add + join + seed.
     $add = Invoke-Sql -Node $Dr -File '22-add-replica.sql' -Label 'add replica' -Vars @{ AgName = $AgName; ReplicaName = $Orig.Name; EndpointUrl = "tcp://$($Orig.PrivateIp):5022" }
@@ -864,13 +992,20 @@ function Invoke-Reinstate {
     $join = Invoke-Sql -Node $Orig -File '23-join-secondary.sql' -Vars @{ AgName = $AgName } -Label 'join AG'
     Write-Host "  JOINED = $(Get-Val $join 'JOINED')"
     Add-Event 'rejoined'
+    Set-UcNode -Node $Orig.Name -Role 'SEEDING'
+    Set-UcLink -Link "ag-$AgName" -From $Dr.Name -To $Orig.Name -State 'seeding'
     Wait-ReplicaState -On $Dr -Replica $Orig.Name -Accept @('SYNCHRONIZING', 'SYNCHRONIZED') -TimeoutMinutes 60 -What 'seeding'
+    Set-UcNode -Node $Orig.Name -Role 'SECONDARY'
+    Set-UcLink -Link "ag-$AgName" -State 'synchronizing'
+    Set-UcPhase rejoin done "$($Orig.Name) is an ASYNC secondary of $($Dr.Name)"
 
     # 7. Re-attach every forwarder to the new global primary (idempotent for the ones failover
     #    already re-attached), re-seeding those that can't resynchronize when -ReseedForwarder.
     $forwarderResults = [ordered]@{}
+    if (-not $HasDag) { Set-UcPhase reattach skipped 'no distributed AG' }
     if ($HasDag) {
         Write-Step "Re-attaching forwarder(s) to the global primary $($Dr.Name)"
+        Set-UcPhase reattach running
         Invoke-DagRepoint -GlobalPrimary $Dr -Fws $ForwarderList -Url "tcp://$($Dr.PrivateIp):5022" | Out-Null
         Resume-Forwarders $ForwarderList
         $pending = @(Wait-ForwardersSync -From $Dr -Fws $ForwarderList -TimeoutMinutes $ForwarderResyncMinutes)
@@ -888,10 +1023,17 @@ function Invoke-Reinstate {
             }
         }
         Add-Event 'forwarders-reattached' (($forwarderResults.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join '; ')
+        foreach ($f in $ForwarderList) { Set-UcLink -Link $f.Dag -From $Dr.Name -State $(if ($forwarderResults[$f.Dag] -eq 'NOT synchronizing') { 'not-synchronizing' } else { 'synchronizing' }) }
+        $allSync = -not @($forwarderResults.Values | Where-Object { $_ -eq 'NOT synchronizing' }).Count
+        Set-UcMetric forwardersResynced $allSync -Detail (($forwarderResults.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ', ')
+        Set-UcPhase reattach $(if ($allSync) { 'done' } else { 'failed' }) (($forwarderResults.GetEnumerator() | ForEach-Object { "$($_.Key) $($_.Value)" }) -join ', ')
     }
 
     # 8. Lift the client fence: node-1 is now a readable secondary.
+    Set-UcPhase unfence running
     Set-Fence -Remove -Only @('uc01-fence-deny-sql')
+    Set-UcNode -Node $Orig.Name -Fenced $false
+    Set-UcPhase unfence done "$($Orig.Name) accepts clients again (readable secondary)"
     Save-Evidence 'reinstate' ([ordered]@{ utc = (Format-Utc (Get-UtcNow)); inspect = $insp[0].Stdout; drop = $drop.Stdout; rpo = $rpo; forwarders = $forwarderResults })
     Write-Host ''
     Write-Host "  $($Orig.Name) is back as an ASYNCHRONOUS secondary of $($Dr.Name) (primary stays in $($Dr.Region))." -ForegroundColor Green
@@ -913,25 +1055,40 @@ function Invoke-Failback {
     Write-Host '  writes pause briefly while the AG is taken offline on the current primary.' -ForegroundColor Yellow
     Confirm-Yes "  Type 'yes' to fail back to $($Orig.Name)"
 
+    Set-UcPhase sync running
     $t0 = Get-UtcNow
     Invoke-Sql -Node $Dr -File '30-failback-prepare.sql' -Label 'sync + commit gating' -Vars @{ AgName = $AgName; CurrentPrimary = $Dr.Name; Target = $Orig.Name } | Out-Null
     Wait-ReplicaState -On $Dr -Replica $Orig.Name -Accept @('SYNCHRONIZED') -TimeoutMinutes 20 -What 'synchronization'
+    Set-UcLink -Link "ag-$AgName" -State 'synchronized'
+    Set-UcPhase sync done "$($Orig.Name) SYNCHRONIZED"
+    Set-UcPhase swap running
     Invoke-Sql -Node $Dr   -File '31-offline.sql' -Vars @{ AgName = $AgName } -Label 'AG offline' | Out-Null
     Invoke-Sql -Node $Orig -File '32-promote.sql' -Vars @{ AgName = $AgName } -Label 'promote' | Out-Null
     Invoke-Sql -Node $Dr   -File '33-demote-and-resume.sql' -Vars @{ AgName = $AgName; Demote = 1 } -Label 'demote + resume' | Out-Null
     Invoke-Sql -Node $Orig -File '33-demote-and-resume.sql' -Vars @{ AgName = $AgName; Demote = 0 } -Label 'resume' | Out-Null
     Invoke-Sql -Node $Orig -File '34-restore-original-modes.sql' -Label 'restore modes' -Vars @{ AgName = $AgName; Primary = $Orig.Name; Remote = $Dr.Name } | Out-Null
     $t1 = Get-UtcNow
+    Set-UcNode -Node $Orig.Name -Role 'PRIMARY' -Global $true
+    Set-UcNode -Node $Dr.Name -Role 'SECONDARY' -Global $false
+    Set-UcLink -Link "ag-$AgName" -From $Orig.Name -To $Dr.Name -State 'synchronizing'
+    Set-UcMetric failbackSeconds ([math]::Round(($t1 - $t0).TotalSeconds, 1)) 's'
+    Set-UcPhase swap done "$($Orig.Name) PRIMARY again"
 
+    if (-not $HasDag) { Set-UcPhase dagback skipped 'no distributed AG' }
     if ($HasDag) {
         # The global primary moved with AG1's primary: repoint every distributed AG on both sides.
+        Set-UcPhase dagback running
         Invoke-DagRepoint -GlobalPrimary $Orig -Fws $ForwarderList -Url "tcp://$($Orig.PrivateIp):5022" | Out-Null
         $pending = @(Wait-ForwardersSync -From $Orig -Fws $ForwarderList -TimeoutMinutes $ForwarderResyncMinutes)
         foreach ($f in $pending) { Write-Host "  WARNING: $($f.Dag): forwarder $($f.Ag) is not synchronizing from $($Orig.Name) yet - check status." -ForegroundColor Yellow }
+        foreach ($f in $ForwarderList) { Set-UcLink -Link $f.Dag -From $Orig.Name -State $(if ($pending | Where-Object { $_.Dag -eq $f.Dag }) { 'not-synchronizing' } else { 'synchronizing' }) }
+        Set-UcPhase dagback $(if ($pending.Count -eq 0) { 'done' } else { 'failed' }) "$($ForwarderList.Count - $pending.Count)/$($ForwarderList.Count) forwarder(s) synchronizing from $($Orig.Name)"
     }
+    Set-UcPhase fbverify running
     Set-DnsToIp -Ip $Orig.PrivateIp -Why 'failback'
     $w = Invoke-Sql -Node $Orig -File '12-write-test.sql' -Label 'write test' -Vars @{ DbName = $DemoDbName; RunId = (Get-RunIdOrNone); Rows = $WriteTestRows }
     Add-Event 'failback-completed'
+    Set-UcPhase fbverify done "write test OK on $($Orig.Name)"
     Save-Evidence 'failback' ([ordered]@{ startedUtc = (Format-Utc $t0); completedUtc = (Format-Utc $t1); writeTest = $w.Stdout })
     Write-Host ''
     Write-Host "  $($Orig.Name) is PRIMARY again ($($Orig.Region)); $($Dr.Name) is its ASYNC secondary. Role swap took $([math]::Round(($t1 - $t0).TotalSeconds)) s." -ForegroundColor Green
@@ -1043,8 +1200,14 @@ $CurrentRunFile = Join-Path $RunsRoot 'current-run.txt'
 New-Item -ItemType Directory -Force -Path $RunsRoot | Out-Null
 $script:RunId = if (Test-Path $CurrentRunFile) { (Get-Content $CurrentRunFile -Raw).Trim() } else { $null }
 
+if ($Dashboard) {
+    & pwsh -NoProfile -File (Join-Path $ProjectDir 'dashboard' 'dashboard.ps1') -UseCase uc-01 -Stack $Orig.Rg `
+        -Mode $DashboardMode -RefreshSeconds $DashboardRefreshSeconds -Detach
+}
+
 $LogFile = Join-Path $RunsRoot "$Action-$((Get-UtcNow).ToString('yyyyMMdd-HHmmss')).log"
 Start-Transcript -Path $LogFile | Out-Null
+$script:UcActionOk = $false
 try {
     Write-Host "AG1 $AgName : $($Orig.Name) ($($Orig.Region), primary) -> $($Dr.Name) ($($Dr.Region), DR)"
     foreach ($f in $ForwarderList) {
@@ -1053,6 +1216,8 @@ try {
     }
     Write-Host "Failure domain (region $($Orig.Region)): $(($RegionNodes | ForEach-Object { $_.Name }) -join ', ')"
     if ($script:RunId) { Write-Host "Current drill run: $($script:RunId)" }
+    # precheck / drill open a new run (and their dashboard session) themselves; status is read-only.
+    if ($Action -notin @('status', 'precheck', 'drill')) { Start-UcSession }
 
     switch ($Action) {
         'status'           { Invoke-Status }
@@ -1072,9 +1237,12 @@ try {
             Invoke-Precheck
             Invoke-StartWorkload
             Write-Host "  Warm-up: $WarmupSeconds s of writes before the outage ..."
+            Set-UcPhase warmup running "$WarmupSeconds s of writes before the outage"
             Start-Sleep $WarmupSeconds
+            Set-UcPhase warmup done
             Invoke-SimulateFailure
             Write-Host "  Detection/decision window: $DetectSeconds s ..."
+            Set-UcPhase detect running "detection/decision window: $DetectSeconds s"
             Start-Sleep $DetectSeconds
             Invoke-Failover
             Invoke-Verify
@@ -1084,6 +1252,13 @@ try {
             Write-Host "When region $($Orig.Region) is 'back': ./uc-01.ps1 -Action reinstate -Identifier $Identifier -PrimaryNodeSuffix $PrimaryNodeSuffix -SecondaryNodeSuffix $SecondaryNodeSuffix$fwArg"
         }
     }
+    $script:UcActionOk = $true
 } finally {
+    # Runs on 'exit' too: close the dashboard session (the phase that was running failed).
+    if ($script:UcSessionStarted) {
+        $why = if ($script:UcCancelled) { 'cancelled by the operator' } else { 'stopped with an error - see the log' }
+        if (-not $script:UcActionOk -and (Get-UcRunningPhase)) { Set-UcPhase (Get-UcRunningPhase) failed $why }
+        Set-UcAction -Action $Action -Status $(if ($script:UcActionOk) { 'completed' } else { 'failed' }) -Detail $(if ($script:UcActionOk) { "$Action completed" } else { "$Action $why" })
+    }
     Stop-Transcript | Out-Null
 }

@@ -34,11 +34,15 @@
     ./deploy.ps1 -Action deploy -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -PrimaryLocation eastus -SecondaryLocation westus2 -AllowedSourceIps auto
 
 .EXAMPLE
+    ./deploy.ps1 -Action deploy-dag -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -DagForwarderPrimarySuffix node-3 -DagForwarderSecondarySuffix node-4
+    # Distributed AG: AG of node-1/node-2 = global primary, AG of node-3/node-4 = forwarder
+
+.EXAMPLE
     ./deploy.ps1 -Action remove -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -RemoveScope secondary
     # removes only node-2's objects; a later -Action deploy recreates it and re-adds it to the AG
 #>
 param(
-    [ValidateSet('', 'deploy', 'remove', 'status', 'output', 'refresh-access', 'failover-to-secondary')]
+    [ValidateSet('', 'deploy', 'remove', 'status', 'output', 'refresh-access', 'failover-to-secondary', 'deploy-dag', 'status-dag', 'remove-dag')]
     [string]$Action = '',
 
     [string]$PrimaryNodeSuffix   = '',
@@ -74,6 +78,14 @@ param(
     # Defaults to 'agsqlvm-<primary suffix>' so that two stacks never share an AG name (a
     # Distributed AG between them requires distinct names).
     [string]$AgName     = '',
+    # Distributed AG (deploy-dag / status-dag / remove-dag): -PrimaryNodeSuffix/-SecondaryNodeSuffix
+    # name the GLOBAL PRIMARY stack, these two name the FORWARDER stack (same -Identifier).
+    [string]$DagForwarderPrimarySuffix   = '',
+    [string]$DagForwarderSecondarySuffix = '',
+    # Defaults to 'dagsqlvm-<global primary suffix>-<forwarder primary suffix>'.
+    [string]$DagName = '',
+    # deploy-dag drops the forwarder AG's existing databases; by default it backs them up first.
+    [switch]$SkipForwarderBackup,
     [string]$DemoDbName = 'AGDemoDB',
     [switch]$AutoApprove
 )
@@ -740,6 +752,433 @@ function Remove-SingleNode {
     }
 }
 
+# ── Distributed AG (deploy-dag / status-dag / remove-dag) ──────────────────────
+# Links the AG of one stack (GLOBAL PRIMARY: source of the databases) to the AG of another stack
+# (FORWARDER: receives them) with a distributed AG. Direct SSH/1433 can be blocked by subscription
+# policy, so every step runs through 'az vm run-command' (Azure control plane) instead of ssh/scp.
+
+# Runs bash bodies on several VMs in parallel through the Run Command extension. Each request is
+# @{ Rg; Vm; Body; Label }. Returns one result per request (same order) with the KEY=VALUE lines
+# of its stdout parsed into .Values. Azure returns at most ~4 KB of output per call, so the node
+# scripts print compact KEY=VALUE lines only.
+function Invoke-RunCommandBatch {
+    param([object[]]$Requests)
+    $template = @'
+#!/bin/bash
+(
+set -euo pipefail
+__BODY__
+)
+echo "RC_EXIT=$?"
+'@
+    $jobs = @(foreach ($r in $Requests) {
+        [pscustomobject]@{ Rg = $r.Rg; Vm = $r.Vm; Label = $r.Label; Script = $template.Replace('__BODY__', $r.Body).Replace("`r`n", "`n") }
+    })
+    foreach ($j in $jobs) { Write-Host "  [$($j.Vm)] $($j.Label) ..." -ForegroundColor DarkGray }
+
+    $raw = @($jobs | ForEach-Object -ThrottleLimit 4 -Parallel {
+        $j = $_
+        $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('rc-' + [guid]::NewGuid().ToString('N') + '.sh')
+        [System.IO.File]::WriteAllText($tmp, $j.Script)
+        $json = $null
+        try {
+            for ($attempt = 1; $attempt -le 2; $attempt++) {
+                $json = az vm run-command invoke -g $j.Rg -n $j.Vm --command-id RunShellScript --scripts "@$tmp" -o json 2>$null
+                if ($LASTEXITCODE -eq 0 -and $json) { break }
+                Start-Sleep 20
+            }
+        } finally {
+            Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+        }
+        $message = if ($json) { "$((($json | ConvertFrom-Json).value | Select-Object -First 1).message)" } else { $null }
+        [pscustomobject]@{ Vm = $j.Vm; Label = $j.Label; Message = $message }
+    })
+
+    foreach ($j in $jobs) {
+        $m = $raw | Where-Object { $_.Vm -eq $j.Vm -and $_.Label -eq $j.Label } | Select-Object -First 1
+        $message = if ($m) { $m.Message } else { $null }
+        if (-not $message) {
+            [pscustomobject]@{ Vm = $j.Vm; Label = $j.Label; Exit = -1; Stdout = ''; Stderr = 'az vm run-command failed (VM not running?)'; Values = @{} }
+            continue
+        }
+        $parts  = $message -split '\[stderr\]', 2
+        $stdout = ($parts[0] -replace '(?s)^.*?\[stdout\]\s*', '').Trim()
+        $stderr = if ($parts.Count -gt 1) { $parts[1].Trim() } else { '' }
+        $values = @{}
+        foreach ($line in ($stdout -split "`n")) {
+            if ($line -match '^\s*([A-Z][A-Z0-9_]*)=(.*)$') {
+                if (-not $values.ContainsKey($Matches[1])) { $values[$Matches[1]] = [System.Collections.Generic.List[string]]::new() }
+                $values[$Matches[1]].Add($Matches[2].Trim())
+            }
+        }
+        $exit = if ($values.ContainsKey('RC_EXIT')) { [int]$values['RC_EXIT'][-1] } else { -1 }
+        [pscustomobject]@{ Vm = $j.Vm; Label = $j.Label; Exit = $exit; Stdout = $stdout; Stderr = $stderr; Values = $values }
+    }
+}
+
+function Get-RcVal  { param($Result, [string]$Key) if ($Result.Values.ContainsKey($Key)) { $Result.Values[$Key][0] } else { $null } }
+function Get-RcVals { param($Result, [string]$Key) if ($Result.Values.ContainsKey($Key)) { @($Result.Values[$Key]) } else { @() } }
+
+function Assert-RcOk {
+    param([object[]]$Results)
+    foreach ($r in $Results) {
+        if ($r.Exit -ne 0) {
+            if ($r.Stdout) { Write-Host $r.Stdout }
+            if ($r.Stderr) { Write-Host $r.Stderr -ForegroundColor Red }
+            Write-Error "$($r.Label) failed on $($r.Vm) (exit $($r.Exit))."
+            exit 1
+        }
+    }
+}
+
+# Bash lines that write scripts/<Script> to the VM and run it with single-quoted arguments.
+function Get-NodeScriptBody {
+    param([string]$Script, [string[]]$Arguments)
+    $content = (Get-Content (Join-Path $ScriptsDir $Script) -Raw).Replace("`r`n", "`n")
+    $argString = ($Arguments | ForEach-Object { "'$_'" }) -join ' '
+    return "cat > /tmp/$Script <<'SQLVMNODESCRIPT'`n$content`nSQLVMNODESCRIPT`nchmod +x /tmp/$Script`n/tmp/$Script $argString"
+}
+
+function New-NodeScriptRequest {
+    param($Node, [string]$Script, [string[]]$Arguments, [string]$Label = $Script, [string]$Prefix = '')
+    return @{ Rg = $Node.Rg; Vm = $Node.Vm; Label = $Label; Body = $Prefix + (Get-NodeScriptBody -Script $Script -Arguments $Arguments) }
+}
+
+function Invoke-NodeScriptRc {
+    param($Node, [string]$Script, [string[]]$Arguments, [string]$Label = $Script, [string]$Prefix = '')
+    $r = @(Invoke-RunCommandBatch @(New-NodeScriptRequest -Node $Node -Script $Script -Arguments $Arguments -Label $Label -Prefix $Prefix))[0]
+    Assert-RcOk $r
+    return $r
+}
+
+# One node of either stack, with everything the DAG steps need.
+function New-DagNode {
+    param([string]$Suffix, [string]$StackPrimary, [string]$StackSecondary, [string]$Stack, [string]$AgName)
+    $rg = "$NamePrefix-$StackPrimary-$StackSecondary-rg"
+    $credsFile = Join-Path $StateDir "$rg.credentials.json"
+    if (-not (Test-Path $credsFile)) { Write-Error "No saved credentials for $rg ($credsFile) - was it deployed with this script?"; exit 1 }
+    $creds = Get-Content $credsFile -Raw | ConvertFrom-Json
+    $ip = az network nic show -g $rg -n "$NamePrefix-$Suffix-nic" --query 'ipConfigurations[0].privateIPAddress' -o tsv 2>$null
+    if (-not $ip) { Write-Error "NIC of '$NamePrefix-$Suffix' not found in $rg."; exit 1 }
+    return [pscustomobject]@{
+        Suffix = $Suffix; Name = "$NamePrefix-$Suffix"; Vm = "$NamePrefix-$Suffix-vm"; Nsg = "$NamePrefix-$Suffix-nsg"
+        Vnet = "$NamePrefix-$Suffix-vnet"; Rg = $rg; Stack = $Stack; Ag = $AgName; PrivateIp = $ip
+        Sa = $creds.SaPassword; AgLoginPassword = $creds.AgLoginPassword
+    }
+}
+
+function Get-DagPowerStates {
+    param([object[]]$AllNodes)
+    foreach ($n in $AllNodes) {
+        $state = az vm get-instance-view -g $n.Rg -n $n.Vm --query "instanceView.statuses[?starts_with(code, 'PowerState/')].code | [0]" -o tsv 2>$null
+        $n | Add-Member -NotePropertyName Power -NotePropertyValue ($(if ($state) { $state -replace '^PowerState/', '' } else { 'unknown' })) -Force
+    }
+}
+
+# dag-06-status.sh on every running node; returns @{ <vm> = result }.
+function Get-DagStatus {
+    param([object[]]$Nodes)
+    $running = @($Nodes | Where-Object { $_.Power -eq 'running' })
+    $results = @{}
+    if ($running.Count -eq 0) { return $results }
+    $batch = @(Invoke-RunCommandBatch @($running | ForEach-Object { New-NodeScriptRequest -Node $_ -Script 'dag-06-status.sh' -Arguments @($_.Sa, $DagName) -Label 'DAG status' }))
+    Assert-RcOk $batch
+    foreach ($r in $batch) { $results[$r.Vm] = $r }
+    return $results
+}
+
+function Get-LocalAgRole {
+    param($Result, [string]$Ag)
+    foreach ($l in (Get-RcVals $Result 'LOCAL_AG')) { $p = $l.Split('|'); if ($p[0] -eq $Ag) { return $p[1] } }
+    return 'NONE'
+}
+
+function Show-DagStatus {
+    param([object[]]$Nodes, [hashtable]$Status)
+    foreach ($n in $Nodes) {
+        Write-Host ''
+        Write-Host ("  {0} ({1}, {2}) - {3}" -f $n.Name, $n.Stack, $n.Ag, $n.Power) -ForegroundColor White
+        $r = $Status[$n.Vm]
+        if (-not $r) { continue }
+        foreach ($k in @('LOCAL_AG', 'DAG_EXISTS', 'DAG_MEMBER', 'DAG_DB', 'LOCAL_DB')) {
+            foreach ($v in (Get-RcVals $r $k)) { Write-Host ("    {0,-10} {1}" -f $k, $v) }
+        }
+    }
+}
+
+function Add-DagPeering {
+    param($From, $To)
+    $name = "to-$($To.Suffix)"
+    # 'list' + filter instead of 'show': no NotFound error noise when the peering doesn't exist yet.
+    $state = az network vnet peering list -g $From.Rg --vnet-name $From.Vnet --query "[?name=='$name'].peeringState | [0]" -o tsv 2>$null
+    if (-not $state) {
+        az network vnet peering create -g $From.Rg --vnet-name $From.Vnet -n $name --remote-vnet $To.VnetId --allow-vnet-access -o none
+        if ($LASTEXITCODE -ne 0) { Write-Error "Failed to peer $($From.Vnet) -> $($To.Vnet)."; exit 1 }
+        $state = 'created'
+    }
+    Write-Host "  peering $($From.Vnet) -> $($To.Vnet): $state"
+}
+
+# NSG rule on one node allowing the AG endpoint (5022) from the other stack's VNets. One rule PER
+# LINKED STACK ('allow-ag-endpoint-from-dag-<peer primary suffix>'): a global primary AG can be in
+# several distributed AGs (one per forwarder), and a shared rule name would make each deploy-dag
+# overwrite the previous link's sources.
+function Set-DagNsgRule {
+    param($Node, [string]$PeerSuffix, [string[]]$Sources)
+    $name  = "allow-ag-endpoint-from-dag-$PeerSuffix"
+    $rules = @(az network nsg rule list -g $Node.Rg --nsg-name $Node.Nsg `
+        --query "[?direction=='Inbound'].{n:name, p:priority, s:sourceAddressPrefixes}" -o json 2>$null | ConvertFrom-Json)
+    $existing = $rules | Where-Object { $_.n -eq $name } | Select-Object -First 1
+    $priority = if ($existing) { $existing.p } else {
+        $used = @($rules | ForEach-Object { [int]$_.p })
+        130..199 | Where-Object { $used -notcontains $_ } | Select-Object -First 1
+    }
+    if (-not $priority) { Write-Error "No free NSG priority (130-199) on $($Node.Nsg)."; exit 1 }
+    az network nsg rule create -g $Node.Rg --nsg-name $Node.Nsg -n $name --priority $priority `
+        --direction Inbound --access Allow --protocol Tcp --destination-port-ranges 5022 `
+        --source-address-prefixes @Sources --description "Distributed AG: AG endpoint from stack $PeerSuffix" -o none
+    if ($LASTEXITCODE -ne 0) { Write-Error "Failed to update NSG $($Node.Nsg)."; exit 1 }
+    Write-Host "  $($Node.Nsg): $name (priority $priority) - 5022 from $($Sources -join ', ')"
+    # Earlier versions used one shared rule name for every link: drop it once this link has its own rule.
+    $legacy = $rules | Where-Object { $_.n -eq 'allow-ag-endpoint-from-dag' } | Select-Object -First 1
+    if ($legacy -and -not (Compare-Object @($legacy.s | Sort-Object) @($Sources | Sort-Object))) {
+        az network nsg rule delete -g $Node.Rg --nsg-name $Node.Nsg -n 'allow-ag-endpoint-from-dag' -o none 2>$null
+        Write-Host "  $($Node.Nsg): replaced legacy rule allow-ag-endpoint-from-dag"
+    }
+}
+
+# VNet peering between every node VNet of one stack and every node VNet of the other (any node can
+# hold the global primary / forwarder role after a local failover), plus an NSG rule on every node
+# allowing the AG endpoint (5022) from the other stack's VNets.
+function Add-DagNetworking {
+    param([object[]]$GpNodes, [object[]]$FwNodes)
+    Write-Host ''
+    Write-Host '=== Networking: cross-stack VNet peering + AG endpoint (5022) rules ===' -ForegroundColor Cyan
+    foreach ($n in @($GpNodes) + @($FwNodes)) {
+        $v = az network vnet show -g $n.Rg -n $n.Vnet --query '{id:id, space:addressSpace.addressPrefixes[0]}' -o json 2>$null | ConvertFrom-Json
+        if (-not $v) { Write-Error "VNet $($n.Vnet) not found in $($n.Rg)."; exit 1 }
+        $n | Add-Member -NotePropertyName VnetId -NotePropertyValue $v.id -Force
+        $n | Add-Member -NotePropertyName Space  -NotePropertyValue $v.space -Force
+    }
+    foreach ($a in $GpNodes) {
+        foreach ($b in $FwNodes) {
+            if (Test-CidrOverlap $a.Space $b.Space) {
+                Write-Error "$($a.Vnet) ($($a.Space)) overlaps $($b.Vnet) ($($b.Space)) - overlapping VNets can't be peered. Redeploy one stack with other ranges."
+                exit 1
+            }
+        }
+    }
+    foreach ($a in $GpNodes) { foreach ($b in $FwNodes) { Add-DagPeering $a $b; Add-DagPeering $b $a } }
+    # Rules are named after the OTHER stack's primary suffix (the stack's first node, as in its RG name).
+    $gpSources = @($GpNodes | ForEach-Object { $_.Space }); $fwSources = @($FwNodes | ForEach-Object { $_.Space })
+    foreach ($n in $GpNodes) { Set-DagNsgRule -Node $n -PeerSuffix $FwNodes[0].Suffix -Sources $fwSources }
+    foreach ($n in $FwNodes) { Set-DagNsgRule -Node $n -PeerSuffix $GpNodes[0].Suffix -Sources $gpSources }
+}
+
+# Every node trusts the mirroring certificate of every node in the OTHER stack (login + certificate
+# + CONNECT on the endpoint, via ag-02-trust-peer.sh, which also replaces a changed certificate).
+function Set-DagCertificateTrust {
+    param([object[]]$GpNodes, [object[]]$FwNodes)
+    Write-Host ''
+    Write-Host '=== Certificate trust between the two stacks ===' -ForegroundColor Cyan
+    $all = @($GpNodes) + @($FwNodes)
+    $export = @(Invoke-RunCommandBatch @($all | ForEach-Object { New-NodeScriptRequest -Node $_ -Script 'dag-01-export-cert.sh' -Arguments @($_.Sa) -Label 'export certificate' }))
+    Assert-RcOk $export
+    $certs = @{}
+    foreach ($r in $export) { $certs[$r.Vm] = Get-RcVal $r 'CERT_B64' }
+
+    $requests = foreach ($n in $all) {
+        $peers = if ($n.Stack -eq 'global-primary') { $FwNodes } else { $GpNodes }
+        $body = ''
+        foreach ($p in $peers) {
+            if (-not $certs[$p.Vm]) { Write-Error "No certificate exported from $($p.Vm)."; exit 1 }
+            $body += "echo '$($certs[$p.Vm])' | base64 -d > /tmp/peer_dbm_certificate.cer`n"
+            $body += (Get-NodeScriptBody -Script 'ag-02-trust-peer.sh' -Arguments @($n.Sa, $p.Name, $n.AgLoginPassword)) + "`n"
+        }
+        @{ Rg = $n.Rg; Vm = $n.Vm; Label = "trust $(@($peers | ForEach-Object { $_.Suffix }) -join ', ')"; Body = $body }
+    }
+    $trust = @(Invoke-RunCommandBatch @($requests))
+    Assert-RcOk $trust
+    Write-Host '  All four nodes trust the other stack''s endpoints.' -ForegroundColor Green
+}
+
+function Invoke-DagAction {
+    $fwP = $DagForwarderPrimarySuffix
+    $fwS = $DagForwarderSecondarySuffix
+    if (-not $fwP) { $fwP = Read-Value -Prompt 'Forwarder stack - primary node suffix (e.g. node-3)' -Default 'node-3' -Hint $suffixHint -Validate { param($v) Test-Suffix $v } }
+    if (-not $fwS) { $fwS = Read-Value -Prompt 'Forwarder stack - secondary node suffix (e.g. node-4)' -Default 'node-4' -Hint $suffixHint -Validate { param($v) Test-Suffix $v } }
+    $fwP = $fwP.ToLower(); $fwS = $fwS.ToLower()
+    $allSuffixes = @($PrimaryNodeSuffix, $SecondaryNodeSuffix, $fwP, $fwS)
+    if (@($allSuffixes | Select-Object -Unique).Count -ne 4) { Write-Error "The four node suffixes must all be different ($($allSuffixes -join ', '))."; exit 1 }
+
+    $gpAg = $AgName
+    $fwAg = "agsqlvm-$fwP"
+    if (-not $script:DagName) { $script:DagName = "dagsqlvm-$PrimaryNodeSuffix-$fwP" }
+
+    foreach ($rg in @("$NamePrefix-$PrimaryNodeSuffix-$SecondaryNodeSuffix-rg", "$NamePrefix-$fwP-$fwS-rg")) {
+        if ((az group exists -n $rg) -ne 'true') { Write-Error "Resource group '$rg' not found - deploy both stacks first."; exit 1 }
+    }
+    $gpNodes = @(
+        (New-DagNode -Suffix $PrimaryNodeSuffix   -StackPrimary $PrimaryNodeSuffix -StackSecondary $SecondaryNodeSuffix -Stack 'global-primary' -AgName $gpAg),
+        (New-DagNode -Suffix $SecondaryNodeSuffix -StackPrimary $PrimaryNodeSuffix -StackSecondary $SecondaryNodeSuffix -Stack 'global-primary' -AgName $gpAg))
+    $fwNodes = @(
+        (New-DagNode -Suffix $fwP -StackPrimary $fwP -StackSecondary $fwS -Stack 'forwarder' -AgName $fwAg),
+        (New-DagNode -Suffix $fwS -StackPrimary $fwP -StackSecondary $fwS -Stack 'forwarder' -AgName $fwAg))
+    $allNodes = @($gpNodes) + @($fwNodes)
+
+    New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+    $dagLog = Join-Path $LogDir "$Action-$NamePrefix-$DagName-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
+    Start-Transcript -Path $dagLog -Append | Out-Null
+    try {
+        Write-Host ''
+        Write-Host "Action           : $Action"
+        Write-Host "Distributed AG   : $DagName"
+        Write-Host "Global primary AG: $gpAg ($($gpNodes[0].Name), $($gpNodes[1].Name))"
+        Write-Host "Forwarder AG     : $fwAg ($($fwNodes[0].Name), $($fwNodes[1].Name))"
+        Write-Host "Log              : $dagLog"
+
+        Get-DagPowerStates $allNodes
+        $down = @($allNodes | Where-Object { $_.Power -ne 'running' })
+        if ($down.Count -gt 0 -and $Action -ne 'status-dag') {
+            Write-Host ''
+            $down | ForEach-Object { Write-Host "  $($_.Vm) is '$($_.Power)'" -ForegroundColor Yellow }
+            Confirm-Yes "Type 'yes' to start the VM(s) above"
+            foreach ($n in $down) {
+                az vm start -g $n.Rg -n $n.Vm -o none
+                if ($LASTEXITCODE -ne 0) { Write-Error "Failed to start $($n.Vm)."; exit 1 }
+                $n.Power = 'running'
+            }
+        }
+
+        switch ($Action) {
+            'status-dag' {
+                Write-Host ''
+                Write-Host '=== Distributed AG status ===' -ForegroundColor Cyan
+                Show-DagStatus -Nodes $allNodes -Status (Get-DagStatus $allNodes)
+            }
+            'remove-dag' { Invoke-RemoveDag -AllNodes $allNodes -GpAg $gpAg -FwAg $fwAg }
+            'deploy-dag' { Invoke-DeployDag -GpNodes $gpNodes -FwNodes $fwNodes -GpAg $gpAg -FwAg $fwAg }
+        }
+    } finally {
+        Stop-Transcript | Out-Null
+    }
+}
+
+function Invoke-DeployDag {
+    param([object[]]$GpNodes, [object[]]$FwNodes, [string]$GpAg, [string]$FwAg)
+    $allNodes = @($GpNodes) + @($FwNodes)
+
+    # 1. Who is primary in each AG right now, and does the DAG already exist?
+    Write-Host ''
+    Write-Host '=== Current state ===' -ForegroundColor Cyan
+    $status = Get-DagStatus $allNodes
+    $gpPrimary = $GpNodes | Where-Object { (Get-LocalAgRole $status[$_.Vm] $GpAg) -eq 'PRIMARY' } | Select-Object -First 1
+    $fwPrimary = $FwNodes | Where-Object { (Get-LocalAgRole $status[$_.Vm] $FwAg) -eq 'PRIMARY' } | Select-Object -First 1
+    if (-not $gpPrimary) { Write-Error "No PRIMARY replica found for $GpAg."; exit 1 }
+    if (-not $fwPrimary) { Write-Error "No PRIMARY replica found for $FwAg."; exit 1 }
+    $gpSecondaries = @($GpNodes | Where-Object { $_.Vm -ne $gpPrimary.Vm })
+    $fwSecondaries = @($FwNodes | Where-Object { $_.Vm -ne $fwPrimary.Vm })
+    $dagExists = (Get-RcVal $status[$gpPrimary.Vm] 'DAG_EXISTS') -eq '1'
+    $gpDbs = @(Get-RcVals $status[$gpPrimary.Vm] 'LOCAL_DB' | Where-Object { $_ -notmatch '\|NOT_IN_AG$' } | ForEach-Object { $_.Split('|')[0] })
+    if ($gpDbs.Count -eq 0) { Write-Error "$GpAg has no databases - nothing to distribute."; exit 1 }
+    Write-Host "  Global primary : $($gpPrimary.Name) ($GpAg, $($gpPrimary.PrivateIp))"
+    Write-Host "  Forwarder      : $($fwPrimary.Name) ($FwAg, $($fwPrimary.PrivateIp))"
+    Write-Host "  Databases      : $($gpDbs -join ', ')"
+    Write-Host "  $DagName exists: $dagExists"
+
+    # 2. Network + 3. certificates (idempotent, re-applied on every run).
+    Add-DagNetworking -GpNodes $GpNodes -FwNodes $FwNodes
+    Set-DagCertificateTrust -GpNodes $GpNodes -FwNodes $FwNodes
+
+    $gpUrl = "tcp://$($gpPrimary.PrivateIp):5022"
+    $fwUrl = "tcp://$($fwPrimary.PrivateIp):5022"
+    if (-not $dagExists) {
+        # 4. The forwarder AG must be empty: its databases come from the global primary.
+        $fwDbs = @(Get-RcVals $status[$fwPrimary.Vm] 'LOCAL_DB' | Where-Object { $_ -notmatch '\|NOT_IN_AG$' } | ForEach-Object { $_.Split('|')[0] })
+        if ($fwDbs.Count -gt 0) {
+            Write-Host ''
+            Write-Host "=== Emptying the forwarder AG $FwAg ===" -ForegroundColor Cyan
+            $keep = if ($SkipForwarderBackup) { 'NO backup (-SkipForwarderBackup)' } else { "COPY_ONLY backups in /var/opt/mssql/backup/pre-dag-<db>.bak on $($fwPrimary.Name)" }
+            Write-Host "  $($fwDbs -join ', ') will be REMOVED from $FwAg and DROPPED on $($FwNodes.Name -join ' and ') ($keep)," -ForegroundColor Yellow
+            Write-Host "  then re-seeded from $GpAg through the distributed AG." -ForegroundColor Yellow
+            Confirm-Yes "Type 'yes' to continue"
+            $clear = Invoke-NodeScriptRc -Node $fwPrimary -Script 'dag-02-clear-forwarder.sh' -Arguments @($fwPrimary.Sa, $FwAg, $DagName, $(if ($SkipForwarderBackup) { '1' } else { '0' }))
+            foreach ($k in @('BACKED_UP', 'REMOVED_DB', 'FORWARDER_CLEARED')) { foreach ($v in (Get-RcVals $clear $k)) { Write-Host "  $k = $v" } }
+        }
+        # Leftover RESTORING copies of the global primary's databases on any forwarder node (the AG
+        # removal above, or an earlier interrupted run) would block seeding - drop them. ONLINE
+        # databases are never dropped; the check below stops the deploy for those.
+        $drop = @(Invoke-RunCommandBatch @($FwNodes | ForEach-Object { New-NodeScriptRequest -Node $_ -Script 'dag-03-drop-orphan-dbs.sh' -Arguments @($_.Sa, ($gpDbs -join ',')) -Label 'drop orphan copies' }))
+        Assert-RcOk $drop
+        foreach ($r in $drop) { foreach ($k in @('DROPPED_DB', 'KEPT_DB', 'WAIT_DB')) { foreach ($v in (Get-RcVals $r $k)) { Write-Host "  [$($r.Vm)] $k = $v" } } }
+        # A same-named database outside any AG on the forwarder side would block seeding.
+        $check = Get-DagStatus $FwNodes
+        foreach ($n in $FwNodes) {
+            $clash = @(Get-RcVals $check[$n.Vm] 'LOCAL_DB' | Where-Object { $gpDbs -contains $_.Split('|')[0] })
+            if ($clash.Count -gt 0) { Write-Error "$($n.Name) still has database(s) named like the global primary's: $($clash -join '; '). Drop them and re-run."; exit 1 }
+        }
+
+        # 5. Create on the global primary, join on the forwarder.
+        Write-Host ''
+        Write-Host "=== Creating distributed AG $DagName ===" -ForegroundColor Cyan
+        $create = Invoke-NodeScriptRc -Node $gpPrimary -Script 'dag-04-create.sh' -Arguments @($gpPrimary.Sa, $DagName, $GpAg, $gpUrl, $FwAg, $fwUrl)
+        Write-Host "  DAG_CREATED = $(Get-RcVal $create 'DAG_CREATED')"
+        $join = Invoke-NodeScriptRc -Node $fwPrimary -Script 'dag-05-join.sh' -Arguments @($fwPrimary.Sa, $DagName, $GpAg, $gpUrl, $FwAg, $fwUrl)
+        Write-Host "  DAG_JOINED  = $(Get-RcVal $join 'DAG_JOINED')"
+    }
+
+    # 6. Wait for seeding: global primary -> forwarder (DAG), forwarder -> its secondary (local AG).
+    Write-Host ''
+    Write-Host '=== Waiting for seeding (global primary -> forwarder -> forwarder secondary) ===' -ForegroundColor Cyan
+    $deadline = (Get-Date).AddMinutes(60)
+    while ($true) {
+        $s = Get-DagStatus (@($gpPrimary) + @($fwSecondaries))
+        $dagRows = @(Get-RcVals $s[$gpPrimary.Vm] 'DAG_DB' | Where-Object { $_ -like "$FwAg|*" })
+        $toForwarder = @($gpDbs | Where-Object { $db = $_; @($dagRows | Where-Object { $p = $_.Split('|'); $p[1] -eq $db -and $p[2] -in @('SYNCHRONIZING', 'SYNCHRONIZED') }).Count -gt 0 })
+        $onFwSecondaries = @($gpDbs | Where-Object {
+            $db = $_
+            @($fwSecondaries | Where-Object { @(Get-RcVals $s[$_.Vm] 'LOCAL_DB' | Where-Object { $p = $_.Split('|'); $p[0] -eq $db -and $p[2] -ne 'NOT_IN_AG' }).Count -gt 0 }).Count -eq $fwSecondaries.Count
+        })
+        Write-Host ("  forwarder {0}/{1} synchronizing | forwarder secondary {2}/{1} seeded" -f $toForwarder.Count, $gpDbs.Count, $onFwSecondaries.Count)
+        foreach ($r in $dagRows) { Write-Host "    DAG_DB $r" }
+        if ($toForwarder.Count -eq $gpDbs.Count -and $onFwSecondaries.Count -eq $gpDbs.Count) { break }
+        if ((Get-Date) -gt $deadline) { Write-Error 'Seeding did not complete within 60 minutes - check status-dag.'; exit 1 }
+        Start-Sleep 45
+    }
+
+    Write-Host ''
+    Write-Host '=== Distributed AG status ===' -ForegroundColor Cyan
+    Show-DagStatus -Nodes $allNodes -Status (Get-DagStatus $allNodes)
+    Write-Host ''
+    Write-Host '================================================================' -ForegroundColor Green
+    Write-Host "  Distributed AG $DagName is live"
+    Write-Host "  Global primary : $GpAg on $($gpPrimary.Name)  LISTENER_URL $gpUrl"
+    Write-Host "  Forwarder      : $FwAg on $($fwPrimary.Name)  LISTENER_URL $fwUrl"
+    Write-Host "  Databases      : $($gpDbs -join ', ')  (read-only on the forwarder side)"
+    Write-Host '  No listener (CLUSTER_TYPE = NONE): after a local failover inside either AG, update that'
+    Write-Host "  AG's LISTENER_URL on both sides: ALTER AVAILABILITY GROUP [$DagName] MODIFY AVAILABILITY GROUP ON"
+    Write-Host "  N'<ag>' WITH (LISTENER_URL = N'tcp://<new primary IP>:5022');"
+    Write-Host '================================================================' -ForegroundColor Green
+}
+
+function Invoke-RemoveDag {
+    param([object[]]$AllNodes, [string]$GpAg, [string]$FwAg)
+    $status = Get-DagStatus $AllNodes
+    $targets = @($AllNodes | Where-Object { $status[$_.Vm] -and (Get-RcVal $status[$_.Vm] 'DAG_EXISTS') -eq '1' -and (Get-LocalAgRole $status[$_.Vm] $_.Ag) -eq 'PRIMARY' })
+    if ($targets.Count -eq 0) { Write-Host "  $DagName isn't present on any primary replica - nothing to remove." -ForegroundColor Yellow; return }
+    Write-Host ''
+    Write-Host "  $DagName will be dropped on $($targets.Name -join ' and '). Both AGs keep running; the forwarder's" -ForegroundColor Yellow
+    Write-Host '  copies of the databases stay behind in RESTORING state (run deploy-dag again to re-link).' -ForegroundColor Yellow
+    Write-Host '  VNet peering, NSG rules and certificate trust between the stacks are left in place.' -ForegroundColor Yellow
+    Confirm-Yes "Type 'yes' to drop $DagName"
+    # Forwarder first, then the global primary.
+    $ordered = @($targets | Sort-Object { if ($_.Stack -eq 'forwarder') { 0 } else { 1 } })
+    foreach ($n in $ordered) {
+        $r = Invoke-NodeScriptRc -Node $n -Script 'dag-07-drop.sh' -Arguments @($n.Sa, $DagName)
+        Write-Host "  $(Get-RcVal $r 'DAG_DROPPED')"
+    }
+}
+
 # ── Preconditions + inputs ──────────────────────────────────────────────────────
 Assert-Tool 'az'
 
@@ -754,9 +1193,10 @@ Write-Host "Using Azure subscription: $($account.name) ($($account.id))"
 
 if (-not $Action) {
     $Action = Read-Choice -Prompt 'What do you want to do?' -Default 'deploy' `
-        -Options @('deploy', 'remove', 'status', 'output', 'refresh-access', 'failover-to-secondary') `
+        -Options @('deploy', 'remove', 'status', 'output', 'refresh-access', 'failover-to-secondary', 'deploy-dag', 'status-dag', 'remove-dag') `
         -Descriptions @('create or resume a stack', 'delete a whole stack or one node', 'VM power state',
-                        'connection info', 'allow your current IP on SSH/SQL', 'force failover to the secondary')
+                        'connection info', 'allow your current IP on SSH/SQL', 'force failover to the secondary',
+                        'link two stacks with a Distributed AG', 'Distributed AG health', 'drop the Distributed AG')
 }
 
 $idHint = 'Use 1-15 lowercase letters, digits or hyphens (no leading/trailing hyphen), e.g. 257672.'
@@ -767,6 +1207,12 @@ $Identifier = $Identifier.ToLower()
 if (-not (Test-Identifier $Identifier)) { Write-Error "Invalid identifier '$Identifier'. $idHint"; exit 1 }
 
 $suffixHint = 'Use 1-20 lowercase letters, digits or hyphens, e.g. node-1.'
+$IsDagAction = $Action -in @('deploy-dag', 'status-dag', 'remove-dag')
+if ($IsDagAction -and -not ($PrimaryNodeSuffix -and $SecondaryNodeSuffix)) {
+    Write-Host ''
+    Write-Host 'Distributed AG: first the GLOBAL PRIMARY stack (its AG is the source of the databases),' -ForegroundColor Cyan
+    Write-Host 'then the FORWARDER stack (its AG receives them).' -ForegroundColor Cyan
+}
 if (-not $PrimaryNodeSuffix) {
     $PrimaryNodeSuffix = Read-Value -Prompt 'Primary node objects suffix (e.g. node-1)' -Default 'node-1' -Hint $suffixHint -Validate { param($v) Test-Suffix $v }
 }
@@ -791,6 +1237,11 @@ $DeploymentName = if ($StackName.Length -gt 64) { $StackName.Substring(0, 64) } 
 $PrimaryVmName   = "$NamePrefix-$PrimaryNodeSuffix-vm"
 $SecondaryVmName = "$NamePrefix-$SecondaryNodeSuffix-vm"
 if (-not $AgName) { $AgName = "agsqlvm-$PrimaryNodeSuffix" }
+
+if ($IsDagAction) {
+    Invoke-DagAction
+    exit 0
+}
 
 # Saved per-stack credentials: a rerun after a mid-deploy failure must reuse the SAME passwords
 # that are already configured on the VMs, or the "already installed" checks can't recognize them.

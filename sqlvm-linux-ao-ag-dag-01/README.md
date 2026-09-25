@@ -3,7 +3,8 @@
 A 2-node SQL Server **Always On Availability Group** on **RHEL 9**, SQL Server installed from a
 **local RPM**, deployed by one interactive script. It asks for:
 
-1. **Action**: `deploy` / `remove` (also `status`, `output`, `refresh-access`, `failover-to-secondary`)
+1. **Action**: `deploy` / `remove` (also `status`, `output`, `refresh-access`, `failover-to-secondary`,
+   and `deploy-dag` / `status-dag` / `remove-dag` to link two stacks with a Distributed AG)
 2. **Unique identifier** for the object names, for example `257672` (any 1–15 lowercase letters, digits or hyphens)
 3. **Primary node suffix**, for example `node-1`
 4. **Secondary node suffix**, for example `node-2`
@@ -66,9 +67,10 @@ hyphen. The two suffixes must be different.
 ## Repo layout
 
 ```
-sqlvm-linux-ao-ag-dag/
+sqlvm-linux-ao-ag-dag-01/
 ├── README.md
 ├── deploy.ps1              # interactive entry point: deploy / remove / status / output / refresh-access / failover
+│                           #   + deploy-dag / status-dag / remove-dag (Distributed AG between two stacks)
 ├── deploy-bastion.ps1      # optional Bastion: deploy / remove / tunnel-sql / ssh / status
 ├── bicep/
 │   ├── main.bicep          # subscription scope: resource group + resources module
@@ -76,15 +78,23 @@ sqlvm-linux-ao-ag-dag/
 │   ├── node.bicep          # one node: VNet, NSG, PIP, NIC, data disk, VM (used twice)
 │   ├── bastion.bicep       # optional Bastion per node VNet
 │   └── parameters.json     # shared settings: admin user, allowedSourceIps, disk size, tags
-└── scripts/                # run on the VMs over SSH, in order, by deploy.ps1
-    ├── install-sqlserver.sh
-    ├── ag-01-endpoint.sh               # both nodes: master key, certificate, HADR endpoint
-    ├── ag-02-trust-peer.sh             # both nodes: trust the peer's certificate
-    ├── ag-03-create-primary.sh         # primary: CREATE AVAILABILITY GROUP
-    ├── ag-04-join-secondary.sh         # secondary: JOIN
-    ├── ag-05-create-demo-db.sh         # primary: AGDemoDB added to the AG
-    ├── ag-06-restore-wideworldimporters.sh  # primary: WideWorldImporters added to the AG
-    └── ag-07-verify.sh                 # primary: replica health + expected DBs present
+├── scripts/                # run on the VMs by deploy.ps1 (ag-*: over SSH; dag-*: through az vm run-command)
+│   ├── install-sqlserver.sh
+│   ├── ag-01-endpoint.sh               # both nodes: master key, certificate, HADR endpoint
+│   ├── ag-02-trust-peer.sh             # both nodes: trust the peer's certificate
+│   ├── ag-03-create-primary.sh         # primary: CREATE AVAILABILITY GROUP
+│   ├── ag-04-join-secondary.sh         # secondary: JOIN
+│   ├── ag-05-create-demo-db.sh         # primary: AGDemoDB added to the AG
+│   ├── ag-06-restore-wideworldimporters.sh  # primary: WideWorldImporters added to the AG
+│   ├── ag-07-verify.sh                 # primary: replica health + expected DBs present
+│   ├── dag-01-export-cert.sh           # every node: print its endpoint certificate (base64)
+│   ├── dag-02-clear-forwarder.sh       # forwarder primary: back up + remove + drop its AG databases
+│   ├── dag-03-drop-orphan-dbs.sh       # forwarder nodes: drop leftover RESTORING copies
+│   ├── dag-04-create.sh                # global primary: CREATE AVAILABILITY GROUP ... WITH (DISTRIBUTED)
+│   ├── dag-05-join.sh                  # forwarder primary: JOIN the distributed AG
+│   ├── dag-06-status.sh                # any node: local AG + distributed AG state
+│   └── dag-07-drop.sh                  # global primary / forwarder: DROP the distributed AG
+└── use-cases/              # failure-scenario drills and runbooks (uc-01, ...), each with its own README
 ```
 
 Generated at runtime (git-ignored): `logs/` holds the transcripts, and `state/` holds the
@@ -204,6 +214,9 @@ The *vCPUs free* column shows the smallest free quota across the regions. If no 
 | `refresh-access` | Detects this machine's current public IP and sets it as the only source on the SSH (22) and SQL (1433) rules of both NSGs. Nothing is redeployed. `-AllowedSourceIps` overrides the detected IP. |
 | `output` | Shows the SSH and SSMS connection strings and where the credentials file is. |
 | `failover-to-secondary` | Runs `FORCE_FAILOVER_ALLOW_DATA_LOSS` on the secondary. It uses the saved SA password, or `-SaPassword`. |
+| `deploy-dag` | Links two stacks with a **Distributed AG** (see below). |
+| `status-dag` | Local AG + Distributed AG state of all four nodes. |
+| `remove-dag` | Drops the Distributed AG; both AGs keep running. |
 
 ## Removing a single node
 
@@ -269,6 +282,88 @@ A VNet that already exists keeps its range. You can still force a range with
 `-PrimaryVnetCidr` / `-SecondaryVnetCidr` (/22 or larger). The script warns you if the range
 overlaps an existing VNet. It only checks VNets in the current subscription.
 
+## Distributed AG (linking two stacks)
+
+A Distributed AG replicates the databases of one stack's AG (the **global primary**) to another
+stack's AG (the **forwarder**), which then passes them on to its own secondary:
+
+```
+  AG1 agsqlvm-node-1 (global primary)                 AG2 agsqlvm-node-3 (forwarder)
+  ┌──────────────────────────────────┐   dagsqlvm-    ┌──────────────────────────────────┐
+  │ node-1 eastus  PRIMARY ──────────┼── node-1- ───►│ node-3 eastus  PRIMARY (forwarder) │
+  │    │ async                       │   node-3       │    │ async                        │
+  │    ▼                             │   (async)      │    ▼                              │
+  │ node-2 westus2 SECONDARY         │                │ node-4 eastus  SECONDARY          │
+  └──────────────────────────────────┘                └──────────────────────────────────┘
+```
+
+```powershell
+./deploy.ps1 -Action deploy-dag -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 `
+             -DagForwarderPrimarySuffix node-3 -DagForwarderSecondarySuffix node-4
+./deploy.ps1 -Action status-dag -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 `
+             -DagForwarderPrimarySuffix node-3 -DagForwarderSecondarySuffix node-4
+```
+
+`-PrimaryNodeSuffix` / `-SecondaryNodeSuffix` name the global primary's stack; the two
+`-DagForwarder*Suffix` parameters name the forwarder's stack (asked for when not passed). Both
+stacks must use the same `-Identifier`. The Distributed AG is named
+`dagsqlvm-<global primary suffix>-<forwarder primary suffix>` (override with `-DagName`).
+
+`deploy-dag` runs everything through `az vm run-command`, so it doesn't need SSH or port 1433,
+and it's idempotent. Its steps:
+
+1. **Networking.** Peers every node VNet of one stack with every node VNet of the other (four
+   peerings each way). It also adds an NSG rule `allow-ag-endpoint-from-dag-<other stack's primary
+   suffix>` (5022 from the other stack's VNets) on all four nodes, at the first free priority from
+   130. Any node can hold the global primary or forwarder role after
+   a local failover, so all four pairings are needed. VNet ranges must not overlap; the automatic
+   ranges already guarantee this.
+2. **Certificate trust.** Each node trusts the endpoint certificates of both nodes in the other
+   stack (login, certificate and `CONNECT` on the endpoint).
+3. **Empty the forwarder.** The forwarder AG must have no databases, because they're seeded from
+   the global primary. Its current databases are backed up (`COPY_ONLY`, to
+   `/var/opt/mssql/backup/pre-dag-<db>.bak` on the forwarder primary; skip with
+   `-SkipForwarderBackup`), removed from the AG and dropped on both forwarder nodes. The script
+   asks for confirmation first.
+4. **Create and join.** Creates the Distributed AG on the global primary and joins it on the
+   forwarder (asynchronous, manual failover, automatic seeding).
+5. **Seeding.** Waits until the forwarder is SYNCHRONIZING and its secondary has the databases,
+   then prints the state of all four nodes.
+
+**No listener.** With `CLUSTER_TYPE = NONE`, each member AG's `LISTENER_URL` is the endpoint of
+its current primary replica (Microsoft's guidance for AGs without a cluster manager). After any
+local failover inside a member AG, update that URL on **both** the global primary and the
+forwarder:
+
+```sql
+ALTER AVAILABILITY GROUP [dagsqlvm-node-1-node-3]
+    MODIFY AVAILABILITY GROUP ON N'agsqlvm-node-1' WITH (LISTENER_URL = N'tcp://<new primary IP>:5022');
+```
+
+The use-case scripts (`use-cases/uc-01`) do this automatically.
+
+**Removing it.** `remove-dag` drops the Distributed AG on the forwarder, then on the global
+primary. The forwarder's copies of the databases stay behind in RESTORING state; run
+`deploy-dag` again to re-link and re-seed. Peering, NSG rules and certificate trust are left in
+place.
+
+**Several forwarders.** An AG can be the global primary of several Distributed AGs, one per
+forwarder AG. Run `deploy-dag` once per forwarder stack with the same global primary suffixes:
+
+```powershell
+./deploy.ps1 -Action deploy-dag -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 `
+             -DagForwarderPrimarySuffix node-3 -DagForwarderSecondarySuffix node-4   # dagsqlvm-node-1-node-3
+./deploy.ps1 -Action deploy-dag -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 `
+             -DagForwarderPrimarySuffix node-5 -DagForwarderSecondarySuffix node-6   # dagsqlvm-node-1-node-5
+```
+
+Each link gets its own peerings, NSG rule and certificate trust, so adding one never changes
+another. Forwarders aren't linked to each other. The use-case scripts take every forwarder with
+`-Forwarders node-3:node-4,node-5:node-6`.
+
+**Redeploying a stack.** If Bicep is re-applied to a stack (e.g. rebuilding a removed secondary),
+check `status-dag` afterwards. Re-run `deploy-dag` if any cross-stack peering or NSG rule is missing.
+
 ## Other parameters
 
 | Parameter | Default | Notes |
@@ -282,6 +377,9 @@ overlaps an existing VNet. It only checks VNets in the current subscription.
 | `-AgName` / `-DemoDbName` | `agsqlvm-<primary suffix>` / `AGDemoDB` | |
 | `-SshKeyPath` / `-RhelZipPath` | `~/.ssh/id_rsa` / auto-detected | |
 | `-SaPassword`, `-CertPassword`, `-AgLoginPassword` | saved or generated | Explicit values take priority |
+| `-DagForwarderPrimarySuffix` / `-DagForwarderSecondarySuffix` | asked (DAG actions) | The forwarder stack's node suffixes |
+| `-DagName` | `dagsqlvm-<primary>-<forwarder primary>` | Distributed AG name |
+| `-SkipForwarderBackup` | off | `deploy-dag` drops the forwarder's databases without backing them up first |
 | `-AutoApprove` | off | Skips the confirmation prompts. Required inputs still have to be passed as parameters. |
 
 ## Security notes
@@ -289,7 +387,8 @@ overlaps an existing VNet. It only checks VNets in the current subscription.
 - `deploy` recommends limiting SSH/SQL to your current public IP. The `parameters.json` fallback
   is `0.0.0.0/0`, which is open to everyone. Keep the list tight, and use `refresh-access` when
   your IP changes.
-- Port 5022 (the AG endpoint) accepts traffic only from the peer VNet.
+- Port 5022 (the AG endpoint) accepts traffic only from the peer VNet, plus the other stack's
+  VNets once a Distributed AG links them (`allow-ag-endpoint-from-dag-<stack>`, one rule per link).
 - The generated passwords avoid characters that break shell quoting. They are stored in plain
   text in `state/` and in the `logs/` transcripts. Both folders are git-ignored, so keep them
   off shared drives.
@@ -365,8 +464,13 @@ Standard Bastion bills continuously while it is deployed, and this setup runs tw
   existing VMs, and resumes from the step that failed.
 - **Only one VM exists.** If it's the primary, `deploy` rebuilds the secondary and adds it back
   to the AG. If it's the secondary, `deploy` stops and explains the options.
-- To debug a single phase, `scp` the `scripts/ag-0N-*.sh` file to the node and run it with the
-  arguments shown in its header comment.
+- **SSH blocked by subscription policy.** In this subscription, an Azure policy removes the
+  `allow-ssh` NSG rules and attaches subnet NSGs that deny inbound internet traffic. The
+  `deploy` action's SQL phases (`install-sqlserver.sh`, `ag-*.sh`) use SSH/SCP and fail while
+  that policy applies. Use Bastion, or run the phases through `az vm run-command`. The DAG
+  actions and the use-case scripts already use run-command.
+- To debug a single phase, copy the `scripts/ag-0N-*.sh` / `dag-0N-*.sh` file to the node (or
+  use `az vm run-command invoke`) and run it with the arguments shown in its header comment.
 
 ## Cost (per stack, PAYG, approximate)
 

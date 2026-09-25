@@ -3,7 +3,7 @@ targetScope = 'subscription'
 @description('Short name prefix for all resources')
 param prefix string = 'sqlvm'
 
-@description('Unique identifier that is part of every resource name (deploy.ps1 -Identifier, e.g. 257672)')
+@description('Unique identifier that is part of every resource name (sqlvm-linux-ag.ps1 -Identifier, e.g. 257672)')
 @minLength(1)
 @maxLength(15)
 param environment string
@@ -18,7 +18,7 @@ param primaryNodeSuffix string
 @maxLength(20)
 param secondaryNodeSuffix string
 
-@description('Resource group that holds both nodes (deploy.ps1 derives it from prefix/environment/suffixes)')
+@description('Resource group that holds both nodes (sqlvm-linux-ag.ps1 derives it from prefix/environment/suffixes)')
 param resourceGroupName string = '${prefix}-${environment}-${primaryNodeSuffix}-${secondaryNodeSuffix}-rg'
 
 @description('Azure region for the PRIMARY replica')

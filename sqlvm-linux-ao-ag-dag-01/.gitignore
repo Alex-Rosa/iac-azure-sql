@@ -6,10 +6,10 @@ Rhel9.zip
 *.cer
 *.publishsettings
 
-# deploy.ps1 transcript logs - contain the generated SA / certificate / AG passwords
+# sqlvm-linux-ag.ps1 transcript logs - contain the generated SA / certificate / AG passwords
 logs/
 
-# deploy.ps1 saved per-resource-group credentials (used to resume a failed deploy) - also
+# sqlvm-linux-ag.ps1 saved per-resource-group credentials (used to resume a failed deploy) - also
 # contains the generated SA / certificate / AG passwords in plaintext
 state/
 

@@ -39,9 +39,9 @@
 .EXAMPLE
     ./uc-01.ps1                                   # interactive
 .EXAMPLE
-    ./uc-01.ps1 -Action drill -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -Forwarders node-3:node-4,node-5:node-6
+    ./uc-01.ps1 -Action drill -Identifier ag01 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -Forwarders ag02:node-3:node-4,ag03:node-5:node-6
 .EXAMPLE
-    ./uc-01.ps1 -Action reinstate -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -Forwarders node-3:node-4,node-5:node-6
+    ./uc-01.ps1 -Action reinstate -Identifier ag01 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -Forwarders ag02:node-3:node-4,ag03:node-5:node-6
 #>
 param(
     [ValidateSet('', 'status', 'precheck', 'start-workload', 'simulate-failure', 'failover', 'verify', 'drill', 'reinstate', 'failback')]
@@ -52,8 +52,10 @@ param(
     [string]$Identifier          = '',
     [string]$PrimaryNodeSuffix   = '',   # AG1 node in the region that FAILS
     [string]$SecondaryNodeSuffix = '',   # AG1 DR node in the alternate region
-    # Forwarder stacks of AG1's distributed AGs: one 'primary:secondary' suffix pair per distributed
-    # AG, e.g. node-3:node-4,node-5:node-6. 'none' = no distributed AG. Asked for when not passed.
+    # Forwarder stacks of AG1's distributed AGs, one per distributed AG:
+    # '<identifier>:<primary suffix>:<secondary suffix>' (e.g. ag02:node-3:node-4,ag03:node-5:node-6),
+    # or '<primary suffix>:<secondary suffix>' when the stack uses AG1's -Identifier.
+    # 'none' = no distributed AG. Asked for when not passed.
     [string[]]$Forwarders        = @(),
     # Single-forwarder shorthand (same as -Forwarders <primary>:<secondary>).
     [string]$ForwarderPrimarySuffix   = '',
@@ -183,16 +185,17 @@ function Get-RunIdOrNone { if ($script:RunId) { $script:RunId } else { 'none' } 
 
 # ── Topology ───────────────────────────────────────────────────────────────────
 function New-UcNode {
-    param([string]$Role, [string]$Suffix, [string]$StackPrimary, [string]$StackSecondary, [string]$Ag)
-    $rg = "$NamePrefix-$StackPrimary-$StackSecondary-rg"
+    param([string]$Role, [string]$StackIdentifier, [string]$Suffix, [string]$StackPrimary, [string]$StackSecondary, [string]$Ag)
+    $prefix = "$Prefix-$StackIdentifier"
+    $rg = "$prefix-$StackPrimary-$StackSecondary-rg"
     $credsFile = Join-Path $StateDir "$rg.credentials.json"
     if (-not (Test-Path $credsFile)) { Write-Error "No saved credentials for $rg ($credsFile)."; exit 1 }
-    $vm = "$NamePrefix-$Suffix-vm"
+    $vm = "$prefix-$Suffix-vm"
     $info = az vm show -g $rg -n $vm --query '{l:location}' -o json 2>$null | ConvertFrom-Json
     if (-not $info) { Write-Error "VM $vm not found in $rg."; exit 1 }
-    $ip = az network nic show -g $rg -n "$NamePrefix-$Suffix-nic" --query 'ipConfigurations[0].privateIPAddress' -o tsv 2>$null
+    $ip = az network nic show -g $rg -n "$prefix-$Suffix-nic" --query 'ipConfigurations[0].privateIPAddress' -o tsv 2>$null
     return [pscustomobject]@{
-        Role = $Role; Suffix = $Suffix; Name = "$NamePrefix-$Suffix"; Vm = $vm; Rg = $rg; Nsg = "$NamePrefix-$Suffix-nsg"
+        Role = $Role; Identifier = $StackIdentifier; Suffix = $Suffix; Name = "$prefix-$Suffix"; Vm = $vm; Rg = $rg; Nsg = "$prefix-$Suffix-nsg"
         Region = $info.l; PrivateIp = $ip; Ag = $Ag; Sa = (Get-Content $credsFile -Raw | ConvertFrom-Json).SaPassword
     }
 }
@@ -388,7 +391,7 @@ function Invoke-ReseedForwarder {
     param($F)
     Write-Host "  Re-seeding $($F.Ag): rebuilding $($F.Dag) with ../../sqlvm-linux-ag.ps1 (remove-dag, deploy-dag) ..." -ForegroundColor Yellow
     $deployArgs = @('-Identifier', $Identifier, '-PrimaryNodeSuffix', $PrimaryNodeSuffix, '-SecondaryNodeSuffix', $SecondaryNodeSuffix,
-                    '-DagForwarderPrimarySuffix', $F.PrimarySuffix, '-DagForwarderSecondarySuffix', $F.SecondarySuffix,
+                    '-DagForwarderIdentifier', $F.Identifier, '-DagForwarderPrimarySuffix', $F.PrimarySuffix, '-DagForwarderSecondarySuffix', $F.SecondarySuffix,
                     '-DagName', $F.Dag, '-AutoApprove')
     & pwsh -NoProfile -File (Join-Path $ProjectDir 'sqlvm-linux-ag.ps1') -Action remove-dag @deployArgs
     & pwsh -NoProfile -File (Join-Path $ProjectDir 'sqlvm-linux-ag.ps1') -Action deploy-dag @deployArgs
@@ -975,8 +978,10 @@ if ($ForwarderPrimarySuffix) {
 }
 if ($fwPairs.Count -eq 0) {
     Write-Host ''
-    Write-Host "Distributed AGs: AG1's forwarder stacks as primary:secondary suffix pairs, comma-separated" -ForegroundColor Cyan
-    Write-Host "(e.g. node-3:node-4,node-5:node-6), or 'none'. Declare every forwarder of AG1." -ForegroundColor Cyan
+    Write-Host "Distributed AGs: AG1's forwarder stacks, comma-separated, each as" -ForegroundColor Cyan
+    Write-Host "  <identifier>:<primary suffix>:<secondary suffix>   (e.g. ag02:node-3:node-4,ag03:node-5:node-6)" -ForegroundColor Cyan
+    Write-Host "  <primary suffix>:<secondary suffix>                (same identifier as AG1: $Identifier)" -ForegroundColor Cyan
+    Write-Host "or 'none'. Declare every forwarder of AG1." -ForegroundColor Cyan
     $answer = (Read-Line 'Forwarder stacks [node-3:node-4]').ToLower()
     if (-not $answer) { $answer = 'node-3:node-4' }
     $fwPairs = @($answer -split '[,\s]+' | Where-Object { $_ })
@@ -987,26 +992,35 @@ $NamePrefix = "$Prefix-$Identifier"
 if (-not $AgName) { $AgName = "agsqlvm-$PrimaryNodeSuffix" }
 if ($DagName -and $fwPairs.Count -ne 1) { Write-Error '-DagName can only be used with exactly one forwarder stack.'; exit 1 }
 
-$Orig = New-UcNode -Role 'AG1 primary' -Suffix $PrimaryNodeSuffix   -StackPrimary $PrimaryNodeSuffix -StackSecondary $SecondaryNodeSuffix -Ag $AgName
-$Dr   = New-UcNode -Role 'AG1 DR'      -Suffix $SecondaryNodeSuffix -StackPrimary $PrimaryNodeSuffix -StackSecondary $SecondaryNodeSuffix -Ag $AgName
+$Orig = New-UcNode -Role 'AG1 primary' -StackIdentifier $Identifier -Suffix $PrimaryNodeSuffix   -StackPrimary $PrimaryNodeSuffix -StackSecondary $SecondaryNodeSuffix -Ag $AgName
+$Dr   = New-UcNode -Role 'AG1 DR'      -StackIdentifier $Identifier -Suffix $SecondaryNodeSuffix -StackPrimary $PrimaryNodeSuffix -StackSecondary $SecondaryNodeSuffix -Ag $AgName
 
 $ForwarderList = @()
-$usedSuffixes  = @($PrimaryNodeSuffix, $SecondaryNodeSuffix)
+# Nodes are identified by identifier + suffix (ag01/node-1 and ag02/node-1 are different nodes).
+$usedNodes = @("$Identifier/$PrimaryNodeSuffix", "$Identifier/$SecondaryNodeSuffix")
+$usedAgs   = @($AgName)
 foreach ($pair in $fwPairs) {
-    $parts = $pair.Split(':')
-    if ($parts.Count -ne 2 -or $parts[0] -cnotmatch $SuffixPattern -or $parts[1] -cnotmatch $SuffixPattern) {
-        Write-Error "Invalid forwarder pair '$pair' - use <primary suffix>:<secondary suffix>, e.g. node-3:node-4."; exit 1
+    $parts = @($pair.Split(':'))
+    if ($parts.Count -eq 2) { $parts = @($Identifier) + $parts }
+    if ($parts.Count -ne 3 -or $parts[0] -cnotmatch '^[a-z0-9]([a-z0-9-]{0,13}[a-z0-9])?$' -or
+        $parts[1] -cnotmatch $SuffixPattern -or $parts[2] -cnotmatch $SuffixPattern) {
+        Write-Error "Invalid forwarder '$pair' - use <identifier>:<primary suffix>:<secondary suffix> (e.g. ag02:node-3:node-4) or <primary suffix>:<secondary suffix>."; exit 1
     }
-    if ($usedSuffixes -contains $parts[0] -or $usedSuffixes -contains $parts[1] -or $parts[0] -eq $parts[1]) {
-        Write-Error "Forwarder pair '$pair' reuses a node suffix."; exit 1
+    $fwId = $parts[0]; $fwP = $parts[1]; $fwS = $parts[2]
+    $nodes = @("$fwId/$fwP", "$fwId/$fwS")
+    if ($fwP -eq $fwS -or @($nodes | Where-Object { $usedNodes -contains $_ }).Count -gt 0) {
+        Write-Error "Forwarder '$pair' reuses a node ($($nodes -join ', '))."; exit 1
     }
-    $usedSuffixes += $parts
-    $fwAg = "agsqlvm-$($parts[0])"
-    $pn = New-UcNode -Role "$fwAg forwarder" -Suffix $parts[0] -StackPrimary $parts[0] -StackSecondary $parts[1] -Ag $fwAg
-    $sn = New-UcNode -Role "$fwAg secondary" -Suffix $parts[1] -StackPrimary $parts[0] -StackSecondary $parts[1] -Ag $fwAg
+    $usedNodes += $nodes
+    $fwAg = "agsqlvm-$fwP"
+    # A distributed AG joins AGs by name: every AG involved needs its own name.
+    if ($usedAgs -contains $fwAg) { Write-Error "Forwarder '$pair': AG name '$fwAg' is already used by another stack in this set - distributed AGs need distinct AG names."; exit 1 }
+    $usedAgs += $fwAg
+    $pn = New-UcNode -Role "$fwAg forwarder" -StackIdentifier $fwId -Suffix $fwP -StackPrimary $fwP -StackSecondary $fwS -Ag $fwAg
+    $sn = New-UcNode -Role "$fwAg secondary" -StackIdentifier $fwId -Suffix $fwS -StackPrimary $fwP -StackSecondary $fwS -Ag $fwAg
     $ForwarderList += [pscustomobject]@{
-        PrimarySuffix = $parts[0]; SecondarySuffix = $parts[1]; Ag = $fwAg
-        Dag = $(if ($DagName) { $DagName } else { "dagsqlvm-$PrimaryNodeSuffix-$($parts[0])" })
+        Identifier = $fwId; PrimarySuffix = $fwP; SecondarySuffix = $fwS; Ag = $fwAg
+        Dag = $(if ($DagName) { $DagName } else { "dagsqlvm-$PrimaryNodeSuffix-$fwP" })
         Primary = $pn; Secondary = $sn; Nodes = @($pn, $sn); InFailedRegion = ($pn.Region -eq $Orig.Region)
     }
 }
@@ -1066,7 +1080,7 @@ try {
             Invoke-Verify
             Write-Host ''
             Write-Host "Drill complete. Evidence: $(Get-RunDir)" -ForegroundColor Green
-            $fwArg = if ($HasDag) { " -Forwarders $(($ForwarderList | ForEach-Object { "$($_.PrimarySuffix):$($_.SecondarySuffix)" }) -join ',')" } else { ' -Forwarders none' }
+            $fwArg = if ($HasDag) { " -Forwarders $(($ForwarderList | ForEach-Object { "$($_.Identifier):$($_.PrimarySuffix):$($_.SecondarySuffix)" }) -join ',')" } else { ' -Forwarders none' }
             Write-Host "When region $($Orig.Region) is 'back': ./uc-01.ps1 -Action reinstate -Identifier $Identifier -PrimaryNodeSuffix $PrimaryNodeSuffix -SecondaryNodeSuffix $SecondaryNodeSuffix$fwArg"
         }
     }

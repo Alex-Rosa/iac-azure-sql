@@ -70,7 +70,7 @@ internet.
 
 ```bash
 cd iac-azure-sql/sqlvm-linux-ao-ag-dag-01/use-cases/uc-01
-N="-Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -Forwarders node-3:node-4,node-5:node-6"
+N="-Identifier ag01 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -Forwarders ag02:node-3:node-4,ag03:node-5:node-6"
 
 # 1. Where are we? (read-only, every node)
 pwsh ./uc-01.ps1 -Action status $N
@@ -89,8 +89,8 @@ pwsh ./uc-01.ps1 -Action failback $N
 ```
 
 In zsh, write `${=N}` instead of `$N`. Run `pwsh ./uc-01.ps1` with no parameters to get prompts
-for everything. `-Forwarders` takes one `<primary suffix>:<secondary suffix>` pair per forwarder
-stack. Use `-Forwarders none` for an AG without Distributed AGs.
+for everything. `-Forwarders` takes one `<identifier>:<primary suffix>:<secondary suffix>` entry
+per forwarder stack (the identifier can be left out when it matches `-Identifier`). Use `-Forwarders none` for an AG without Distributed AGs.
 `-ForwarderPrimarySuffix`/`-ForwarderSecondarySuffix` still work as a shorthand for one pair.
 
 ## Actions

@@ -39,8 +39,8 @@
     ./sqlvm-linux-ag.ps1 -Action deploy -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -PrimaryLocation eastus -SecondaryLocation westus2 -AllowedSourceIps auto
 
 .EXAMPLE
-    ./sqlvm-linux-ag.ps1 -Action deploy-dag -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -DagForwarderPrimarySuffix node-3 -DagForwarderSecondarySuffix node-4
-    # Distributed AG: AG of node-1/node-2 = global primary, AG of node-3/node-4 = forwarder
+    ./sqlvm-linux-ag.ps1 -Action deploy-dag -Identifier ag01 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -DagForwarderIdentifier ag02 -DagForwarderPrimarySuffix node-3 -DagForwarderSecondarySuffix node-4
+    # Distributed AG: AG of ag01 node-1/node-2 = global primary, AG of ag02 node-3/node-4 = forwarder
 
 .EXAMPLE
     ./sqlvm-linux-ag.ps1 -Action remove -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -RemoveScope secondary
@@ -92,8 +92,10 @@ param(
     # Defaults to 'agsqlvm-<primary suffix>' so that two stacks never share an AG name (a
     # Distributed AG between them requires distinct names).
     [string]$AgName     = '',
-    # Distributed AG (deploy-dag / status-dag / remove-dag): -PrimaryNodeSuffix/-SecondaryNodeSuffix
-    # name the GLOBAL PRIMARY stack, these two name the FORWARDER stack (same -Identifier).
+    # Distributed AG (deploy-dag / status-dag / remove-dag): -Identifier/-PrimaryNodeSuffix/
+    # -SecondaryNodeSuffix name the GLOBAL PRIMARY stack, the DagForwarder* ones the FORWARDER stack.
+    # -DagForwarderIdentifier defaults to -Identifier (both stacks deployed with the same identifier).
+    [string]$DagForwarderIdentifier      = '',
     [string]$DagForwarderPrimarySuffix   = '',
     [string]$DagForwarderSecondarySuffix = '',
     # Defaults to 'dagsqlvm-<global primary suffix>-<forwarder primary suffix>'.
@@ -864,16 +866,17 @@ function Invoke-NodeScriptRc {
 
 # One node of either stack, with everything the DAG steps need.
 function New-DagNode {
-    param([string]$Suffix, [string]$StackPrimary, [string]$StackSecondary, [string]$Stack, [string]$AgName)
-    $rg = "$NamePrefix-$StackPrimary-$StackSecondary-rg"
+    param([string]$StackIdentifier, [string]$Suffix, [string]$StackPrimary, [string]$StackSecondary, [string]$Stack, [string]$AgName)
+    $prefix = "$Prefix-$StackIdentifier"
+    $rg = "$prefix-$StackPrimary-$StackSecondary-rg"
     $credsFile = Join-Path $StateDir "$rg.credentials.json"
     if (-not (Test-Path $credsFile)) { Write-Error "No saved credentials for $rg ($credsFile) - was it deployed with this script?"; exit 1 }
     $creds = Get-Content $credsFile -Raw | ConvertFrom-Json
-    $ip = az network nic show -g $rg -n "$NamePrefix-$Suffix-nic" --query 'ipConfigurations[0].privateIPAddress' -o tsv 2>$null
-    if (-not $ip) { Write-Error "NIC of '$NamePrefix-$Suffix' not found in $rg."; exit 1 }
+    $ip = az network nic show -g $rg -n "$prefix-$Suffix-nic" --query 'ipConfigurations[0].privateIPAddress' -o tsv 2>$null
+    if (-not $ip) { Write-Error "NIC of '$prefix-$Suffix' not found in $rg."; exit 1 }
     return [pscustomobject]@{
-        Suffix = $Suffix; Name = "$NamePrefix-$Suffix"; Vm = "$NamePrefix-$Suffix-vm"; Nsg = "$NamePrefix-$Suffix-nsg"
-        Vnet = "$NamePrefix-$Suffix-vnet"; Rg = $rg; Stack = $Stack; Ag = $AgName; PrivateIp = $ip
+        Identifier = $StackIdentifier; Suffix = $Suffix; Name = "$prefix-$Suffix"; Vm = "$prefix-$Suffix-vm"; Nsg = "$prefix-$Suffix-nsg"
+        Vnet = "$prefix-$Suffix-vnet"; Rg = $rg; Stack = $Stack; Ag = $AgName; PrivateIp = $ip
         Sa = $creds.SaPassword; AgLoginPassword = $creds.AgLoginPassword
     }
 }
@@ -919,9 +922,15 @@ function Show-DagStatus {
 
 function Add-DagPeering {
     param($From, $To)
-    $name = "to-$($To.Suffix)"
-    # 'list' + filter instead of 'show': no NotFound error noise when the peering doesn't exist yet.
-    $state = az network vnet peering list -g $From.Rg --vnet-name $From.Vnet --query "[?name=='$name'].peeringState | [0]" -o tsv 2>$null
+    # Same identifier: 'to-<suffix>'. Different identifiers: 'to-<identifier>-<suffix>' - a VNet may
+    # already have a 'to-<suffix>' peering to a same-suffix node of another stack.
+    $name = if ($From.Identifier -eq $To.Identifier) { "to-$($To.Suffix)" } else { "to-$($To.Identifier)-$($To.Suffix)" }
+    # An existing peering is found by its REMOTE VNet, whatever its name (Azure allows only one per
+    # remote VNet, and earlier runs may have used another naming).
+    $existing = @(az network vnet peering list -g $From.Rg --vnet-name $From.Vnet `
+        --query "[].{n:name, s:peeringState, r:remoteVirtualNetwork.id}" -o json 2>$null | ConvertFrom-Json) |
+        Where-Object { $_.r -and $_.r.ToLower() -eq $To.VnetId.ToLower() } | Select-Object -First 1
+    $state = if ($existing) { "$($existing.s) ($($existing.n))" } else { $null }
     if (-not $state) {
         az network vnet peering create -g $From.Rg --vnet-name $From.Vnet -n $name --remote-vnet $To.VnetId --allow-vnet-access -o none
         if ($LASTEXITCODE -ne 0) { Write-Error "Failed to peer $($From.Vnet) -> $($To.Vnet)."; exit 1 }
@@ -935,8 +944,8 @@ function Add-DagPeering {
 # several distributed AGs (one per forwarder), and a shared rule name would make each deploy-dag
 # overwrite the previous link's sources.
 function Set-DagNsgRule {
-    param($Node, [string]$PeerSuffix, [string[]]$Sources)
-    $name  = "allow-ag-endpoint-from-dag-$PeerSuffix"
+    param($Node, [string]$PeerSuffix, [string[]]$Sources, [string]$PeerIdentifier = '')
+    $name  = if ($PeerIdentifier -and $PeerIdentifier -ne $Node.Identifier) { "allow-ag-endpoint-from-dag-$PeerIdentifier-$PeerSuffix" } else { "allow-ag-endpoint-from-dag-$PeerSuffix" }
     $rules = @(az network nsg rule list -g $Node.Rg --nsg-name $Node.Nsg `
         --query "[?direction=='Inbound'].{n:name, p:priority, s:sourceAddressPrefixes}" -o json 2>$null | ConvertFrom-Json)
     $existing = $rules | Where-Object { $_.n -eq $name } | Select-Object -First 1
@@ -982,8 +991,8 @@ function Add-DagNetworking {
     foreach ($a in $GpNodes) { foreach ($b in $FwNodes) { Add-DagPeering $a $b; Add-DagPeering $b $a } }
     # Rules are named after the OTHER stack's primary suffix (the stack's first node, as in its RG name).
     $gpSources = @($GpNodes | ForEach-Object { $_.Space }); $fwSources = @($FwNodes | ForEach-Object { $_.Space })
-    foreach ($n in $GpNodes) { Set-DagNsgRule -Node $n -PeerSuffix $FwNodes[0].Suffix -Sources $fwSources }
-    foreach ($n in $FwNodes) { Set-DagNsgRule -Node $n -PeerSuffix $GpNodes[0].Suffix -Sources $gpSources }
+    foreach ($n in $GpNodes) { Set-DagNsgRule -Node $n -PeerSuffix $FwNodes[0].Suffix -PeerIdentifier $FwNodes[0].Identifier -Sources $fwSources }
+    foreach ($n in $FwNodes) { Set-DagNsgRule -Node $n -PeerSuffix $GpNodes[0].Suffix -PeerIdentifier $GpNodes[0].Identifier -Sources $gpSources }
 }
 
 # Every node trusts the mirroring certificate of every node in the OTHER stack (login + certificate
@@ -1014,27 +1023,38 @@ function Set-DagCertificateTrust {
 }
 
 function Invoke-DagAction {
-    $fwP = $DagForwarderPrimarySuffix
-    $fwS = $DagForwarderSecondarySuffix
+    $fwId = $DagForwarderIdentifier
+    $fwP  = $DagForwarderPrimarySuffix
+    $fwS  = $DagForwarderSecondarySuffix
+    if (-not $fwId) { $fwId = Read-Value -Prompt 'Forwarder stack - unique identifier (e.g. ag02)' -Default $Identifier -Hint $idHint -Validate { param($v) Test-Identifier $v } }
+    $fwId = $fwId.ToLower()
+    if (-not (Test-Identifier $fwId)) { Write-Error "Invalid forwarder identifier '$fwId'. $idHint"; exit 1 }
     if (-not $fwP) { $fwP = Read-Value -Prompt 'Forwarder stack - primary node suffix (e.g. node-3)' -Default 'node-3' -Hint $suffixHint -Validate { param($v) Test-Suffix $v } }
     if (-not $fwS) { $fwS = Read-Value -Prompt 'Forwarder stack - secondary node suffix (e.g. node-4)' -Default 'node-4' -Hint $suffixHint -Validate { param($v) Test-Suffix $v } }
     $fwP = $fwP.ToLower(); $fwS = $fwS.ToLower()
-    $allSuffixes = @($PrimaryNodeSuffix, $SecondaryNodeSuffix, $fwP, $fwS)
-    if (@($allSuffixes | Select-Object -Unique).Count -ne 4) { Write-Error "The four node suffixes must all be different ($($allSuffixes -join ', '))."; exit 1 }
+    # Nodes are identified by identifier + suffix: ag01/node-1 and ag02/node-1 are different nodes.
+    $allNames = @("$Identifier/$PrimaryNodeSuffix", "$Identifier/$SecondaryNodeSuffix", "$fwId/$fwP", "$fwId/$fwS")
+    if (@($allNames | Select-Object -Unique).Count -ne 4) { Write-Error "The four nodes must all be different ($($allNames -join ', '))."; exit 1 }
 
     $gpAg = $AgName
     $fwAg = "agsqlvm-$fwP"
+    # A distributed AG joins two AGs BY NAME: they can't share one. AG names default to
+    # agsqlvm-<primary suffix>, so same-suffix stacks from different identifiers would collide.
+    if ($gpAg -eq $fwAg) {
+        Write-Error "Both stacks' AGs are named '$gpAg' - a distributed AG needs two distinct AG names. Use stacks whose primary suffixes differ, or deploy one of them with -AgName."
+        exit 1
+    }
     if (-not $script:DagName) { $script:DagName = "dagsqlvm-$PrimaryNodeSuffix-$fwP" }
 
-    foreach ($rg in @("$NamePrefix-$PrimaryNodeSuffix-$SecondaryNodeSuffix-rg", "$NamePrefix-$fwP-$fwS-rg")) {
-        if ((az group exists -n $rg) -ne 'true') { Write-Error "Resource group '$rg' not found - deploy both stacks first."; exit 1 }
+    foreach ($rg in @("$Prefix-$Identifier-$PrimaryNodeSuffix-$SecondaryNodeSuffix-rg", "$Prefix-$fwId-$fwP-$fwS-rg")) {
+        if ((az group exists -n $rg) -ne 'true') { Write-Error "Resource group '$rg' not found - deploy both stacks first (check the identifiers and suffixes)."; exit 1 }
     }
     $gpNodes = @(
-        (New-DagNode -Suffix $PrimaryNodeSuffix   -StackPrimary $PrimaryNodeSuffix -StackSecondary $SecondaryNodeSuffix -Stack 'global-primary' -AgName $gpAg),
-        (New-DagNode -Suffix $SecondaryNodeSuffix -StackPrimary $PrimaryNodeSuffix -StackSecondary $SecondaryNodeSuffix -Stack 'global-primary' -AgName $gpAg))
+        (New-DagNode -StackIdentifier $Identifier -Suffix $PrimaryNodeSuffix   -StackPrimary $PrimaryNodeSuffix -StackSecondary $SecondaryNodeSuffix -Stack 'global-primary' -AgName $gpAg),
+        (New-DagNode -StackIdentifier $Identifier -Suffix $SecondaryNodeSuffix -StackPrimary $PrimaryNodeSuffix -StackSecondary $SecondaryNodeSuffix -Stack 'global-primary' -AgName $gpAg))
     $fwNodes = @(
-        (New-DagNode -Suffix $fwP -StackPrimary $fwP -StackSecondary $fwS -Stack 'forwarder' -AgName $fwAg),
-        (New-DagNode -Suffix $fwS -StackPrimary $fwP -StackSecondary $fwS -Stack 'forwarder' -AgName $fwAg))
+        (New-DagNode -StackIdentifier $fwId -Suffix $fwP -StackPrimary $fwP -StackSecondary $fwS -Stack 'forwarder' -AgName $fwAg),
+        (New-DagNode -StackIdentifier $fwId -Suffix $fwS -StackPrimary $fwP -StackSecondary $fwS -Stack 'forwarder' -AgName $fwAg))
     $allNodes = @($gpNodes) + @($fwNodes)
 
     New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
@@ -1044,8 +1064,8 @@ function Invoke-DagAction {
         Write-Host ''
         Write-Host "Action           : $Action"
         Write-Host "Distributed AG   : $DagName"
-        Write-Host "Global primary AG: $gpAg ($($gpNodes[0].Name), $($gpNodes[1].Name))"
-        Write-Host "Forwarder AG     : $fwAg ($($fwNodes[0].Name), $($fwNodes[1].Name))"
+        Write-Host "Global primary AG: $gpAg ($($gpNodes[0].Name), $($gpNodes[1].Name)) - identifier $Identifier"
+        Write-Host "Forwarder AG     : $fwAg ($($fwNodes[0].Name), $($fwNodes[1].Name)) - identifier $fwId"
         Write-Host "Log              : $dagLog"
 
         Get-DagPowerStates $allNodes
@@ -1324,8 +1344,15 @@ if ($UseCase) {
 }
 
 $idHint = 'Use 1-15 lowercase letters, digits or hyphens (no leading/trailing hyphen), e.g. 257672.'
+$IsDagAction = $Action -in @('deploy-dag', 'status-dag', 'remove-dag')
+if ($IsDagAction -and -not $Identifier) {
+    Write-Host ''
+    Write-Host 'Distributed AG: first the GLOBAL PRIMARY stack (its AG is the source of the databases),' -ForegroundColor Cyan
+    Write-Host 'then the FORWARDER stack (its AG receives them). Each stack has its own identifier.' -ForegroundColor Cyan
+}
 if (-not $Identifier) {
-    $Identifier = Read-Value -Prompt 'Unique identifier for the object names (e.g. 257672)' -Default '' -Hint $idHint -Validate { param($v) Test-Identifier $v }
+    $idPrompt = if ($IsDagAction) { 'Global primary stack - unique identifier (e.g. ag01)' } else { 'Unique identifier for the object names (e.g. 257672)' }
+    $Identifier = Read-Value -Prompt $idPrompt -Default '' -Hint $idHint -Validate { param($v) Test-Identifier $v }
 }
 $Identifier = $Identifier.ToLower()
 if (-not (Test-Identifier $Identifier)) { Write-Error "Invalid identifier '$Identifier'. $idHint"; exit 1 }
@@ -1335,17 +1362,11 @@ if ($SelectedUseCase) {
 }
 
 $suffixHint = 'Use 1-20 lowercase letters, digits or hyphens, e.g. node-1.'
-$IsDagAction = $Action -in @('deploy-dag', 'status-dag', 'remove-dag')
-if ($IsDagAction -and -not ($PrimaryNodeSuffix -and $SecondaryNodeSuffix)) {
-    Write-Host ''
-    Write-Host 'Distributed AG: first the GLOBAL PRIMARY stack (its AG is the source of the databases),' -ForegroundColor Cyan
-    Write-Host 'then the FORWARDER stack (its AG receives them).' -ForegroundColor Cyan
-}
 if (-not $PrimaryNodeSuffix) {
-    $PrimaryNodeSuffix = Read-Value -Prompt 'Primary node objects suffix (e.g. node-1)' -Default 'node-1' -Hint $suffixHint -Validate { param($v) Test-Suffix $v }
+    $PrimaryNodeSuffix = Read-Value -Prompt $(if ($IsDagAction) { 'Global primary stack - primary node suffix (e.g. node-1)' } else { 'Primary node objects suffix (e.g. node-1)' }) -Default 'node-1' -Hint $suffixHint -Validate { param($v) Test-Suffix $v }
 }
 if (-not $SecondaryNodeSuffix) {
-    $SecondaryNodeSuffix = Read-Value -Prompt 'Secondary node objects suffix (e.g. node-2)' -Default 'node-2' -Hint $suffixHint -Validate { param($v) Test-Suffix $v }
+    $SecondaryNodeSuffix = Read-Value -Prompt $(if ($IsDagAction) { 'Global primary stack - secondary node suffix (e.g. node-2)' } else { 'Secondary node objects suffix (e.g. node-2)' }) -Default 'node-2' -Hint $suffixHint -Validate { param($v) Test-Suffix $v }
 }
 $PrimaryNodeSuffix   = $PrimaryNodeSuffix.ToLower()
 $SecondaryNodeSuffix = $SecondaryNodeSuffix.ToLower()

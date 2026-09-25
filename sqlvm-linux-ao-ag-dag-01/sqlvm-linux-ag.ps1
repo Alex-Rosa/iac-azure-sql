@@ -11,6 +11,7 @@
       3) Check      - stack status, connection info, Distributed AG status
       4) Operate    - refresh SSH/SQL access, failover to secondary
       5) Use cases  - failure drills and runbooks, discovered from use-cases/uc-NN/uc-NN.ps1
+      6) Dashboard  - live progress or replay of a use-case run (web page and/or terminal)
 
     Then anything not passed on the command line is asked for:
       Unique identifier      - part of every object name, e.g. 257672 (asked once, also passed to use cases)
@@ -49,9 +50,13 @@
 .EXAMPLE
     ./sqlvm-linux-ag.ps1 -UseCase uc-01 -UseCaseAction status -Identifier 257672
     # runs use-cases/uc-01/uc-01.ps1 -Action status (it asks for its own remaining inputs)
+
+.EXAMPLE
+    ./sqlvm-linux-ag.ps1 -Action dashboard
+    # runs dashboard/dashboard.ps1, which asks for the use case, live or replay, web or terminal
 #>
 param(
-    [ValidateSet('', 'deploy', 'remove', 'status', 'output', 'refresh-access', 'failover-to-secondary', 'deploy-dag', 'status-dag', 'remove-dag')]
+    [ValidateSet('', 'deploy', 'remove', 'status', 'output', 'refresh-access', 'failover-to-secondary', 'deploy-dag', 'status-dag', 'remove-dag', 'dashboard')]
     [string]$Action = '',
 
     # Use cases: use-cases/<id>/<id>.ps1, e.g. -UseCase uc-01 (or 1). -UseCaseAction is passed to it
@@ -1259,13 +1264,14 @@ function Resolve-UseCase {
 # Two-level menu: section, then action (or use case). Returns @{ Action = ...; UseCase = ... }.
 function Read-MenuAction {
     $useCases = Get-UseCases
-    $sections = @($MenuSections.Keys) + @('Use cases')
+    $sections = @($MenuSections.Keys) + @('Use cases', 'Dashboard')
     $summaries = @(
         'stack (2-node AG), Distributed AG link',
         'stack or one node, Distributed AG link',
         'stack status, connection info, Distributed AG status',
         'refresh SSH/SQL access, failover to secondary',
-        "failure drills and runbooks ($($useCases.Count) available)")
+        "failure drills and runbooks ($($useCases.Count) available)",
+        'live progress or replay of a use-case run (web / terminal)')
     while ($true) {
         Write-Host ''
         Write-Host 'What do you want to do?' -ForegroundColor Cyan
@@ -1276,6 +1282,7 @@ function Read-MenuAction {
         else { $section = $sections | Where-Object { $_.ToLower() -eq $answer } | Select-Object -First 1 }
         if (-not $section) { Write-Host "  '$answer' is not a section." -ForegroundColor Yellow; continue }
 
+        if ($section -eq 'Dashboard') { return @{ Action = 'dashboard'; UseCase = $null } }
         if ($section -eq 'Use cases') {
             if ($useCases.Count -eq 0) { Write-Host '  No use cases found under use-cases/.' -ForegroundColor Yellow; continue }
             $labels = @($useCases | ForEach-Object { $_.Title })
@@ -1341,6 +1348,13 @@ if ($UseCase) {
     $pick = Read-MenuAction
     $Action = $pick.Action
     $SelectedUseCase = $pick.UseCase
+}
+
+# The dashboard only reads use-case runs: it needs no identifier (it asks for what it needs).
+if ($Action -eq 'dashboard') {
+    $proc = Start-Process -FilePath (Get-Process -Id $PID).Path -NoNewWindow -Wait -PassThru `
+        -ArgumentList @('-NoProfile', '-File', "`"$(Join-Path $ScriptDir 'dashboard' 'dashboard.ps1')`"")
+    exit $proc.ExitCode
 }
 
 $idHint = 'Use 1-15 lowercase letters, digits or hyphens (no leading/trailing hyphen), e.g. 257672.'

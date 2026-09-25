@@ -46,6 +46,7 @@ AFTER failover (eastus down)                    AFTER reinstate (eastus back)
 uc-01/
 ├── README.md       this runbook
 ├── uc-01.ps1       drill + runbook automation (status, precheck, drill, failover, reinstate, failback, ...)
+├── dashboard.json  phases, metrics and success criteria shown by ../../dashboard/dashboard.ps1
 ├── sql/            every T-SQL step as a standalone sqlcmd script (runnable by hand)
 └── runs/           evidence written by uc-01.ps1 - one folder per drill run (git-ignored)
 ```
@@ -86,6 +87,16 @@ pwsh ./uc-01.ps1 -Action reinstate $N
 
 # 4. Optional: planned failback to eastus (no data loss), every Distributed AG repointed back to node-1
 pwsh ./uc-01.ps1 -Action failback $N
+```
+
+**Dashboard.** Add `-Dashboard` to any action to open the live dashboard in a new window first:
+`-DashboardMode web` (default), `terminal` or `both`, refreshed every `-DashboardRefreshSeconds`
+(default 3). To replay a finished run later, e.g. for a presentation, use
+`pwsh ../../dashboard/dashboard.ps1 -UseCase uc-01 -Replay latest -Speed 5`. See
+[../../dashboard/README.md](../../dashboard/README.md).
+
+```bash
+pwsh ./uc-01.ps1 -Action drill -Dashboard -DashboardMode both $N
 ```
 
 In zsh, write `${=N}` instead of `$N`. Run `pwsh ./uc-01.ps1` with no parameters to get prompts
@@ -210,7 +221,7 @@ Read-only consumers of AG3 (node-5/node-6, westus2) keep working throughout. Con
 
 | File | Content |
 |---|---|
-| `events.jsonl` | Timeline (UTC): precheck, workload, failure injected, failover, Distributed AG repoint, first write on DR, fence, region started, rejoin, forwarder re-attached, … |
+| `events.jsonl` | Timeline (UTC) that also feeds the dashboard: every phase (running/done/failed), node role and power changes, replication link states, metrics (RTO, RPO, ...), the outage clock, plus the drill's own events (failure injected, first write on DR, fence, rejoin, …) |
 | `precheck.json` | Nodes, regions, IPs and the AG/Distributed AG state of all nodes before the drill |
 | `failure.json` | VMs powered off and when |
 | `failover.json` | DR snapshot, the DR's last pre-failure row before and after recovery, failover timestamps, Distributed AGs repointed, each forwarder's state, write test, **`rtoSeconds`** (failure injected → first write committed on DR) |

@@ -1,0 +1,64 @@
+{
+  "title": "UC-01 · Region failure of the primary node",
+  "subtitle": "Fail every transaction over to the alternate region",
+  "clocks": [
+    { "id": "outage", "label": "Outage clock", "explain": "From the region failure to the first transaction committed in {drRegion}" }
+  ],
+  "stages": [
+    {
+      "id": "drill", "label": "Failover drill",
+      "phases": [
+        { "id": "precheck",   "label": "Pre-check",           "explain": "Checking that every node, availability group and distributed AG is healthy" },
+        { "id": "workload",   "label": "Start workload",      "explain": "An application writer commits a ledger row every 0.2 s on {primary} ({failedRegion})" },
+        { "id": "warmup",     "label": "Warm-up",             "explain": "Transactions flow from {primary} to {dr} ({drRegion}) and on to every forwarder" },
+        { "id": "failure",    "label": "Region failure",      "explain": "Every VM in {failedRegion} is powered off hard - no shutdown, like losing the region" },
+        { "id": "detect",     "label": "Detection",           "explain": "{dr} in {drRegion} notices it has lost the primary" },
+        { "id": "failover",   "label": "Forced failover",     "explain": "Promoting {dr} to primary: transactions not yet replicated are accepted as lost" },
+        { "id": "writetest",  "label": "First write",         "explain": "Proving {drRegion} accepts transactions - this stops the outage clock" },
+        { "id": "redirect",   "label": "Redirect clients",    "explain": "Pointing the application endpoint at {dr}" },
+        { "id": "dag",        "label": "Repoint DAGs",        "explain": "{dr} becomes the global primary of every distributed AG" },
+        { "id": "forwarders", "label": "Surviving forwarders","explain": "Forwarders outside {failedRegion} re-attach to {dr} and keep receiving changes" },
+        { "id": "verify",     "label": "Verify",              "explain": "Checking {dr} is primary, every database is online and writable" }
+      ]
+    },
+    {
+      "id": "reinstate", "label": "Reinstate {failedRegion}",
+      "phases": [
+        { "id": "fence",    "label": "Fence old primary", "explain": "Blocking {primary} on the network first: it boots believing it is still primary" },
+        { "id": "region",   "label": "Region back",       "explain": "Starting every VM in {failedRegion}" },
+        { "id": "rpo",      "label": "Measure data loss", "explain": "Comparing the last transaction on {primary} with what reached {dr}" },
+        { "id": "drop",     "label": "Drop stale copy",   "explain": "Preserving, then dropping the stale databases on {primary}" },
+        { "id": "rejoin",   "label": "Rejoin + seed",     "explain": "{primary} rejoins as a secondary of {dr} and is re-seeded" },
+        { "id": "reattach", "label": "Re-attach forwarders", "explain": "Every forwarder synchronizes from the new global primary {dr}" },
+        { "id": "unfence",  "label": "Lift fence",        "explain": "{primary} is a healthy secondary again - clients may connect" }
+      ]
+    },
+    {
+      "id": "failback", "label": "Failback (planned)",
+      "phases": [
+        { "id": "sync",     "label": "Synchronize",   "explain": "Both replicas switch to synchronous commit so the swap loses nothing" },
+        { "id": "swap",     "label": "Role swap",     "explain": "{primary} becomes primary again, {dr} goes back to secondary" },
+        { "id": "dagback",  "label": "Repoint DAGs",  "explain": "Every distributed AG follows the primary back to {failedRegion}" },
+        { "id": "fbverify", "label": "Redirect + verify", "explain": "Clients back to {primary}, write test" }
+      ]
+    }
+  ],
+  "metrics": [
+    { "id": "rto",             "label": "RTO",                        "unit": "s", "exec": true, "target": null, "explain": "Failure injected -> first write committed in {drRegion}" },
+    { "id": "rpoTx",           "label": "Lost transactions (RPO)",    "unit": "",  "exec": true, "target": 0 },
+    { "id": "rpoWindow",       "label": "RPO window",                 "unit": "s", "exec": true },
+    { "id": "drLastSeq",       "label": "Last ledger row on DR",      "unit": "",  "exec": false },
+    { "id": "workloadRows",    "label": "Rows at workload start",     "unit": "",  "exec": false },
+    { "id": "failoverSeconds", "label": "Forced failover took",       "unit": "s", "exec": false },
+    { "id": "failbackSeconds", "label": "Failback role swap took",    "unit": "s", "exec": false }
+  ],
+  "criteria": [
+    { "id": "verify",    "label": "{dr} primary in {drRegion}, databases online and writable", "metric": "verifyPass",         "op": "eq", "value": true },
+    { "id": "survivors", "label": "Surviving forwarders keep synchronizing during the outage", "metric": "survivorsSync",      "op": "eq", "value": true },
+    { "id": "rto",       "label": "RTO recorded",                                             "metric": "rto",                "op": "exists" },
+    { "id": "rpo",       "label": "RPO recorded (lost transactions measured)",                "metric": "rpoTx",              "op": "exists" },
+    { "id": "fence",     "label": "Old primary fenced before power-on (no split-brain)",      "metric": "fencedBeforeStart",  "op": "eq", "value": true },
+    { "id": "reattach",  "label": "Every forwarder synchronizing after reinstate",            "metric": "forwardersResynced", "op": "eq", "value": true },
+    { "id": "clients",   "label": "Applications redirected (DNS)",                            "metric": "dnsUpdated",         "op": "eq", "value": true }
+  ]
+}

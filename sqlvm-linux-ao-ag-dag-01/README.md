@@ -69,7 +69,7 @@ hyphen. The two suffixes must be different.
 ```
 sqlvm-linux-ao-ag-dag-01/
 ├── README.md
-├── sqlvm-linux-ag.ps1      # entry point: menu with Deploy / Remove / Check / Operate / Use cases
+├── sqlvm-linux-ag.ps1      # entry point: menu with Deploy / Remove / Check / Operate / Use cases / Dashboard
 ├── bicep/
 │   ├── main.bicep          # subscription scope: resource group + resources module
 │   ├── resources.bicep     # the two nodes + VNet peering
@@ -91,7 +91,12 @@ sqlvm-linux-ao-ag-dag-01/
 │   ├── dag-05-join.sh                  # forwarder primary: JOIN the distributed AG
 │   ├── dag-06-status.sh                # any node: local AG + distributed AG state
 │   └── dag-07-drop.sh                  # global primary / forwarder: DROP the distributed AG
+├── dashboard/              # live / replay dashboard of a use-case run (see dashboard/README.md)
+│   ├── dashboard.ps1       # web server (localhost) + terminal view + replay
+│   └── web/index.html      # the page (self-contained, works offline)
 └── use-cases/              # failure drills and runbooks: uc-NN/uc-NN.ps1 + README, listed in the menu automatically
+    ├── common/uc-events.ps1    # dashboard events every use case writes (phases, nodes, links, metrics)
+    └── uc-01/                  # region failure of the primary node (+ dashboard.json)
 ```
 
 Generated at runtime (git-ignored): `logs/` holds the transcripts, and `state/` holds the
@@ -218,6 +223,7 @@ Run `pwsh ./sqlvm-linux-ag.ps1` with no `-Action` / `-UseCase`. Pick a section, 
 | **3) Check** | Stack status (`status`), connection info (`output`), Distributed AG status (`status-dag`) |
 | **4) Operate** | Refresh SSH/SQL access (`refresh-access`), failover to secondary (`failover-to-secondary`) |
 | **5) Use cases** | Every `use-cases/uc-NN/` folder with a `uc-NN.ps1`, titled from its README's first line |
+| **6) Dashboard** | Live progress or replay of a use-case run, as a web page and/or in the terminal (`dashboard`) |
 
 **Use cases.** The identifier is asked once here and passed on. The use case then asks for
 everything else (its action, node suffixes, forwarders) with its own scenario-specific prompts.
@@ -231,7 +237,20 @@ through when you give them on the command line. To run one directly:
 
 A new use case appears in the menu as soon as its folder exists: `use-cases/uc-02/uc-02.ps1`,
 plus a `README.md` whose first line is its title. `uc-02.ps1` should accept `-Action` and
-`-Identifier` (and `-AutoApprove` if it confirms anything).
+`-Identifier` (and `-AutoApprove` if it confirms anything). To show it on the dashboard, add a
+`dashboard.json` and write events (see [dashboard/README.md](dashboard/README.md#adding-a-use-case-to-the-dashboard)).
+
+**Dashboard.** It shows a use-case run for presentations: topology, the running phase in plain
+language, the outage clock, RTO/RPO and the success criteria. It can show a run live or replay a
+recorded one at any speed, as a web page (localhost) and/or in the terminal, in an executive or
+technical view. It only reads the run's event log, so it never interferes with a drill. See
+[dashboard/README.md](dashboard/README.md).
+
+```powershell
+./sqlvm-linux-ag.ps1 -Action dashboard                                           # asks for everything
+./dashboard/dashboard.ps1 -UseCase uc-01 -Replay latest -Speed 5 -Mode both      # replay, web + terminal
+./use-cases/uc-01/uc-01.ps1 -Action drill -Dashboard ...                         # live, opened for the drill
+```
 
 **Scripting.** Every option is also an `-Action`, so nothing is asked for a value you pass.
 

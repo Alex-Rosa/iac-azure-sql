@@ -329,15 +329,17 @@ stack's AG (the **forwarder**), which then passes them on to its own secondary:
 ```
 
 ```powershell
-./sqlvm-linux-ag.ps1 -Action deploy-dag -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 `
-             -DagForwarderPrimarySuffix node-3 -DagForwarderSecondarySuffix node-4
-./sqlvm-linux-ag.ps1 -Action status-dag -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 `
-             -DagForwarderPrimarySuffix node-3 -DagForwarderSecondarySuffix node-4
+./sqlvm-linux-ag.ps1 -Action deploy-dag -Identifier ag01 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 `
+             -DagForwarderIdentifier ag02 -DagForwarderPrimarySuffix node-3 -DagForwarderSecondarySuffix node-4
+./sqlvm-linux-ag.ps1 -Action status-dag -Identifier ag01 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 `
+             -DagForwarderIdentifier ag02 -DagForwarderPrimarySuffix node-3 -DagForwarderSecondarySuffix node-4
 ```
 
 `-PrimaryNodeSuffix` / `-SecondaryNodeSuffix` name the global primary's stack; the two
-`-DagForwarder*Suffix` parameters name the forwarder's stack (asked for when not passed). Both
-stacks must use the same `-Identifier`. The Distributed AG is named
+`-DagForwarder*` parameters name the forwarder's stack (asked for when not passed). Each stack
+keeps the identifier it was deployed with: `-Identifier` is the global primary's,
+`-DagForwarderIdentifier` the forwarder's (defaults to `-Identifier`). The two AGs need different
+names, so the forwarder's primary suffix must differ from the global primary's. The Distributed AG is named
 `dagsqlvm-<global primary suffix>-<forwarder primary suffix>` (override with `-DagName`).
 
 `deploy-dag` runs everything through `az vm run-command`, so it doesn't need SSH or port 1433,
@@ -382,15 +384,16 @@ place.
 forwarder AG. Run `deploy-dag` once per forwarder stack with the same global primary suffixes:
 
 ```powershell
-./sqlvm-linux-ag.ps1 -Action deploy-dag -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 `
-             -DagForwarderPrimarySuffix node-3 -DagForwarderSecondarySuffix node-4   # dagsqlvm-node-1-node-3
-./sqlvm-linux-ag.ps1 -Action deploy-dag -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 `
-             -DagForwarderPrimarySuffix node-5 -DagForwarderSecondarySuffix node-6   # dagsqlvm-node-1-node-5
+./sqlvm-linux-ag.ps1 -Action deploy-dag -Identifier ag01 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 `
+             -DagForwarderIdentifier ag02 -DagForwarderPrimarySuffix node-3 -DagForwarderSecondarySuffix node-4   # dagsqlvm-node-1-node-3
+./sqlvm-linux-ag.ps1 -Action deploy-dag -Identifier ag01 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 `
+             -DagForwarderIdentifier ag03 -DagForwarderPrimarySuffix node-5 -DagForwarderSecondarySuffix node-6   # dagsqlvm-node-1-node-5
 ```
 
 Each link gets its own peerings, NSG rule and certificate trust, so adding one never changes
 another. Forwarders aren't linked to each other. The use-case scripts take every forwarder with
-`-Forwarders node-3:node-4,node-5:node-6`.
+`-Forwarders ag02:node-3:node-4,ag03:node-5:node-6` (`<identifier>:<primary>:<secondary>`; the
+identifier can be left out when the stack uses the same one as AG1).
 
 **Redeploying a stack.** If Bicep is re-applied to a stack (e.g. rebuilding a removed secondary),
 check `status-dag` afterwards. Re-run `deploy-dag` if any cross-stack peering or NSG rule is missing.

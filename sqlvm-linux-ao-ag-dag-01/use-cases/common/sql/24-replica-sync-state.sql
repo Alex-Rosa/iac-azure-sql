@@ -1,4 +1,4 @@
--- UC-01 | CURRENT primary | Per-database state of one secondary replica, seen from the primary
+-- shared | CURRENT primary | Per-database state of one secondary replica, seen from the primary
 -- (seeding progress after a rejoin, or SYNCHRONIZED check before a planned failback).
 -- sqlcmd -v AgName="agsqlvm-node-1" ReplicaName="sqlvm-257672-node-1" -i 24-replica-sync-state.sql
 SET NOCOUNT ON;

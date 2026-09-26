@@ -1,4 +1,4 @@
--- UC-01 | recovered node (node-1), after 22-add-replica.sql ran on the primary | Join the AG as a
+-- shared | the re-added node, after 22-add-replica.sql ran on the primary | Join the AG as a
 -- secondary and allow automatic seeding to create the databases.
 -- sqlcmd -v AgName="agsqlvm-node-1" -i 23-join-secondary.sql
 SET NOCOUNT ON;

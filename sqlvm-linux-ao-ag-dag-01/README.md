@@ -95,8 +95,12 @@ sqlvm-linux-ao-ag-dag-01/
 │   ├── dashboard.ps1       # web server (localhost) + terminal view + replay
 │   └── web/index.html      # the page (self-contained, works offline)
 └── use-cases/              # failure drills and runbooks: uc-NN/uc-NN.ps1 + README, listed in the menu automatically
-    ├── common/uc-events.ps1    # dashboard events every use case writes (phases, nodes, links, metrics)
-    └── uc-01/                  # region failure of the primary node (+ dashboard.json)
+    ├── common/
+    │   ├── uc-common.ps1       # shared framework: prompts, topology, Run Command transport, evidence, main runner
+    │   ├── uc-events.ps1       # dashboard events (phases, nodes, links, metrics, monitoring samples)
+    │   └── sql/                # T-SQL every use case uses (AG status, distributed AG status, resume, sync state)
+    ├── uc-01/                  # region failure of the primary node -> failover to the alternate region
+    └── uc-02/                  # region failure of the secondary node -> in-place recovery + catch-up under load
 ```
 
 Generated at runtime (git-ignored): `logs/` holds the transcripts, and `state/` holds the
@@ -221,7 +225,7 @@ Run `pwsh ./sqlvm-linux-ag.ps1` with no `-Action` / `-UseCase`. Pick a section, 
 | **1) Deploy** | Stack (`deploy`), Distributed AG link (`deploy-dag`) |
 | **2) Remove** | Stack or one node (`remove`), Distributed AG link (`remove-dag`) |
 | **3) Check** | Stack status (`status`), connection info (`output`), Distributed AG status (`status-dag`) |
-| **4) Operate** | Refresh SSH/SQL access (`refresh-access`), failover to secondary (`failover-to-secondary`) |
+| **4) Operate** | Refresh SSH/SQL access (`refresh-access`), failover to secondary (`failover-to-secondary`), move SQL Server's files to the data disk (`relocate-data`) |
 | **5) Use cases** | Every `use-cases/uc-NN/` folder with a `uc-NN.ps1`, titled from its README's first line |
 | **6) Dashboard** | Live progress or replay of a use-case run, as a web page and/or in the terminal (`dashboard`) |
 
@@ -235,9 +239,11 @@ through when you give them on the command line. To run one directly:
 ./use-cases/uc-01/uc-01.ps1 -Action status -Identifier 257672 ...              # same thing, called directly
 ```
 
-A new use case appears in the menu as soon as its folder exists: `use-cases/uc-02/uc-02.ps1`,
-plus a `README.md` whose first line is its title. `uc-02.ps1` should accept `-Action` and
-`-Identifier` (and `-AutoApprove` if it confirms anything). To show it on the dashboard, add a
+A new use case appears in the menu as soon as its folder exists: `use-cases/uc-03/uc-03.ps1`,
+plus a `README.md` whose first line is its title. Build it on the shared framework
+(`use-cases/common/uc-common.ps1`, as `uc-01.ps1` and `uc-02.ps1` do): it gives every use case the
+same prompts, `-Action`/`-Identifier`/`-Forwarders`/`-AutoApprove`/`-Dashboard` parameters, run
+folders and dashboard events. To show it on the dashboard, add a
 `dashboard.json` and write events (see [dashboard/README.md](dashboard/README.md#adding-a-use-case-to-the-dashboard)).
 
 **Dashboard.** It shows a use-case run for presentations: topology, the running phase in plain
@@ -267,6 +273,46 @@ technical view. It only reads the run's event log, so it never interferes with a
 | `deploy-dag` | Links two stacks with a **Distributed AG** (see below). |
 | `status-dag` | Local AG + Distributed AG state of all four nodes. |
 | `remove-dag` | Drops the Distributed AG; both AGs keep running. |
+| `relocate-data` | Mounts the data disk on `/sqldata` and moves SQL Server's data and log files there, on the secondary then the primary (see "SQL Server's files and the data disk"). |
+
+## SQL Server's files and the data disk
+
+Every node has a 256 GB data disk (`sqlDataDiskSizeGB`) meant for SQL Server. In the stacks deployed
+before this fix, it isn't used:
+
+- **The disk isn't mounted.** cloud-init mounted `/dev/sdb`, but on NVMe VM sizes (e.g. the v6/v7
+  families) the data disk is `/dev/nvme0n2`. `/dev/sdb` doesn't exist there, so `/sqldata` was
+  never created.
+- **SQL Server's files are on the OS disk.** They sit in `/var/opt/mssql/data`, on a **10 GB
+  `/var` volume**. Every database's data *and* log files compete there with the OS. A log that
+  can't be truncated (a replica down, see UC-02) fills it within minutes under load.
+
+**New deployments.** cloud-init now finds the data disk by LUN (`/dev/disk/azure/data/by-lun/0` or
+`/dev/disk/azure/scsi1/lun0`), whatever its device name. `install-sqlserver.sh` then bind-mounts
+`/sqldata/mssql-data` on `/var/opt/mssql/data` before installing SQL Server.
+
+**Existing stacks.** Run, once per stack (AG1's and each forwarder's):
+
+```powershell
+./sqlvm-linux-ag.ps1 -Action relocate-data -Identifier ag01 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2
+```
+
+On each node, the secondary first and then the primary, it runs through Run Command:
+
+1. **[`ops-01-mount-data-disk.sh`](scripts/ops-01-mount-data-disk.sh)** finds the data disk (by LUN,
+   or as the largest unused disk), formats it if it is blank, mounts it on `/sqldata` and adds it to
+   `/etc/fstab`.
+2. **[`ops-02-relocate-mssql-data.sh`](scripts/ops-02-relocate-mssql-data.sh)**:
+   - Stops SQL Server and copies `/var/opt/mssql/data` to `/sqldata/mssql-data` (`rsync -aHAX`,
+     keeping ownership and SELinux labels).
+   - Bind-mounts the copy on `/var/opt/mssql/data`, also in `/etc/fstab`, and starts SQL Server.
+   - Checks that every database is back, then deletes the old copy. If SQL Server doesn't come back,
+     it restores the original folder instead.
+
+SQL Server's file paths don't change, so nothing in SQL Server or in the AGs has to be altered.
+While a node's SQL Server is stopped (about 1 minute per 5 GB), its databases are unavailable. On
+the secondary, the replica catches up afterwards; on the **primary**, applications can't write
+meanwhile. Run it outside a drill.
 
 ## Removing a single node
 

@@ -1,0 +1,571 @@
+{
+  "title": "UC-02 · Region failure of the secondary node",
+  "subtitle": "Keep running on the primary, recover the secondary region in place",
+  "clocks": [
+    {
+      "id": "unprotected",
+      "label": "Time without DR",
+      "explain": "From the loss of {failedRegion} until the DR replica has caught up again"
+    },
+    {
+      "id": "catchup",
+      "label": "Catch-up",
+      "explain": "From the DR replica's reconnect until it is back in sync"
+    }
+  ],
+  "stages": [
+    {
+      "id": "drill",
+      "label": "Secondary region outage drill",
+      "phases": [
+        {
+          "id": "precheck",
+          "label": "Pre-check",
+          "explain": "Checking that every node, availability group and distributed AG is healthy, and how much room the primary's log has"
+        },
+        {
+          "id": "workload",
+          "label": "Start workload",
+          "explain": "Application load on {primary} ({workload}); DR replica {commitMode}; a reader on {dr} measures what reports see"
+        },
+        {
+          "id": "baseline",
+          "label": "Baseline",
+          "explain": "Measuring normal throughput, log generation and replication lag before anything fails"
+        },
+        {
+          "id": "failure",
+          "label": "Region failure",
+          "explain": "Every VM in {failedRegion} is lost ({failureMode}). {primary} stays primary - no failover"
+        },
+        {
+          "id": "outage",
+          "label": "Running without DR",
+          "explain": "{primary} keeps committing; every transaction is log the DR replica doesn't have yet, and the log can't be truncated"
+        },
+        {
+          "id": "recover",
+          "label": "In-place recovery",
+          "explain": "{failedRegion} comes back: its replicas reconnect to {primary} - or are re-seeded if the primary had to be protected"
+        },
+        {
+          "id": "catchup",
+          "label": "DR catch-up",
+          "explain": "{dr} replays the backlog while new transactions keep arriving - watch the queue, the rate and the ETA"
+        },
+        {
+          "id": "fwcatchup",
+          "label": "Forwarders catch-up",
+          "explain": "The forwarders in {failedRegion} catch up over their distributed AGs"
+        },
+        {
+          "id": "verify",
+          "label": "Verify",
+          "explain": "Writer stopped: every replica must hold every transaction the primary committed"
+        }
+      ]
+    },
+    {
+      "id": "cleanup",
+      "label": "Cleanup (optional)",
+      "phases": [
+        {
+          "id": "stopload",
+          "label": "Stop workload",
+          "explain": "Stopping the writer sessions and the log backups"
+        },
+        {
+          "id": "reclaim",
+          "label": "Reclaim space",
+          "explain": "Emptying the load table, backing up and shrinking the log"
+        }
+      ]
+    }
+  ],
+  "metrics": [
+    {
+      "id": "txPerSec",
+      "sample": "txPerSec",
+      "label": "Primary throughput",
+      "unit": "tx/s",
+      "exec": true,
+      "explain": "Transactions the workload commits per second, now"
+    },
+    {
+      "id": "behindMB",
+      "sample": "behindMB",
+      "label": "DR behind by",
+      "unit": "MB",
+      "exec": true,
+      "explain": "Log the DR replica doesn't have yet"
+    },
+    {
+      "id": "txBehind",
+      "sample": "txBehind",
+      "label": "Transactions not yet on DR",
+      "unit": "",
+      "exec": true,
+      "explain": "Counted while DR is down, estimated from the queue once it's back"
+    },
+    {
+      "id": "lagSeconds",
+      "sample": "lagSeconds",
+      "label": "DR lag (commits)",
+      "unit": "s",
+      "exec": true,
+      "explain": "Span of committed transactions the DR copy doesn't have: primary's last commit minus DR's last commit (also measured while DR is down)"
+    },
+    {
+      "id": "diskFreePct",
+      "sample": "diskFreePct",
+      "label": "Log volume free",
+      "unit": "%",
+      "exec": true,
+      "target": 25,
+      "targetOp": "ge",
+      "explain": "Free space where the primary's log grows"
+    },
+    {
+      "id": "logReuseWait",
+      "label": "Why the log can't be truncated",
+      "unit": "",
+      "exec": true,
+      "explain": "AVAILABILITY_REPLICA = kept for a replica that hasn't received it"
+    },
+    {
+      "id": "throughputImpactPct",
+      "label": "Throughput impact",
+      "unit": "%",
+      "exec": true,
+      "target": 20,
+      "explain": "Drop in throughput during the outage vs the baseline"
+    },
+    {
+      "id": "writeErrors",
+      "label": "Failed transactions",
+      "unit": "",
+      "exec": true,
+      "target": 0
+    },
+    {
+      "id": "logGeneratedMB",
+      "label": "Backlog built up",
+      "unit": "MB",
+      "exec": true,
+      "explain": "Log generated while the DR region was down"
+    },
+    {
+      "id": "timeUnprotectedSeconds",
+      "label": "Time without DR",
+      "unit": "s",
+      "exec": true,
+      "format": "duration"
+    },
+    {
+      "id": "catchUpSeconds",
+      "label": "Catch-up time",
+      "unit": "s",
+      "exec": true,
+      "format": "duration"
+    },
+    {
+      "id": "logSizeMB",
+      "sample": "logSizeMB",
+      "label": "Primary log size",
+      "unit": "MB",
+      "exec": false
+    },
+    {
+      "id": "logMBps",
+      "sample": "logMBps",
+      "label": "Log generated",
+      "unit": "MB/s",
+      "exec": false
+    },
+    {
+      "id": "sendQueueMB",
+      "sample": "sendQueueMB",
+      "label": "Send queue",
+      "unit": "MB",
+      "exec": false
+    },
+    {
+      "id": "redoQueueMB",
+      "sample": "redoQueueMB",
+      "label": "Redo queue",
+      "unit": "MB",
+      "exec": false
+    },
+    {
+      "id": "baselineTps",
+      "label": "Baseline throughput",
+      "unit": "tx/s",
+      "exec": false
+    },
+    {
+      "id": "outageTps",
+      "label": "Throughput during outage",
+      "unit": "tx/s",
+      "exec": false
+    },
+    {
+      "id": "baselineLogMBps",
+      "label": "Baseline log rate",
+      "unit": "MB/s",
+      "exec": false
+    },
+    {
+      "id": "baselineLagSeconds",
+      "label": "Baseline lag",
+      "unit": "s",
+      "exec": false
+    },
+    {
+      "id": "txDuringOutage",
+      "label": "Transactions during outage",
+      "unit": "",
+      "exec": false
+    },
+    {
+      "id": "peakLogSizeMB",
+      "label": "Peak log size",
+      "unit": "MB",
+      "exec": false
+    },
+    {
+      "id": "minDiskFreePct",
+      "label": "Lowest log volume free",
+      "unit": "%",
+      "exec": false,
+      "target": 15,
+      "targetOp": "ge"
+    },
+    {
+      "id": "reconnectSeconds",
+      "label": "Region start -> reconnect",
+      "unit": "s",
+      "exec": false,
+      "format": "duration"
+    },
+    {
+      "id": "peakBehindMB",
+      "label": "Peak backlog after reconnect",
+      "unit": "MB",
+      "exec": false
+    },
+    {
+      "id": "avgCatchUpMBps",
+      "label": "Average catch-up rate",
+      "unit": "MB/s",
+      "exec": false
+    },
+    {
+      "id": "rowsPrimary",
+      "label": "Rows on the primary",
+      "unit": "",
+      "exec": false
+    },
+    {
+      "id": "rowsDr",
+      "label": "Rows on DR",
+      "unit": "",
+      "exec": false
+    },
+    {
+      "id": "readFreshnessSec",
+      "sample": "readFreshnessSec",
+      "label": "Read freshness on DR",
+      "unit": "s",
+      "exec": true,
+      "explain": "How old the newest row a report on {dr} can see is"
+    },
+    {
+      "id": "commitStallSeconds",
+      "label": "Commit stall after the failure",
+      "unit": "s",
+      "exec": true,
+      "explain": "How long commits on the primary slowed down when DR was lost (synchronous mode: until the session times out)"
+    },
+    {
+      "id": "slowestCommitMs",
+      "label": "Slowest commit",
+      "unit": "ms",
+      "exec": false
+    },
+    {
+      "id": "dmvLagSeconds",
+      "sample": "dmvLagSeconds",
+      "label": "secondary_lag_seconds (DMV)",
+      "unit": "s",
+      "exec": false,
+      "explain": "SQL Server's own lag column: whole seconds, only while the replica is connected"
+    },
+    {
+      "id": "fwLagSeconds",
+      "sample": "fwLagSeconds",
+      "label": "Forwarder lag (commits)",
+      "unit": "s",
+      "exec": false
+    },
+    {
+      "id": "primaryProtected",
+      "label": "Primary protected",
+      "unit": "",
+      "exec": true,
+      "explain": "The missing replicas were removed so the primary's log could be truncated"
+    },
+    {
+      "id": "reseeded",
+      "label": "Re-seeded",
+      "unit": "",
+      "exec": false
+    },
+    {
+      "id": "recommendation",
+      "label": "Catch-up or reseed?",
+      "unit": "",
+      "exec": true,
+      "explain": "Which was faster: catching up from the log, or copying the databases again"
+    },
+    {
+      "id": "writerStopReason",
+      "label": "Workload stopped",
+      "unit": "",
+      "exec": true
+    }
+  ],
+  "charts": [
+    {
+      "id": "throughput",
+      "key": "txPerSec",
+      "label": "Primary throughput",
+      "unit": "tx/s",
+      "exec": true,
+      "min": 0,
+      "decimals": 0
+    },
+    {
+      "id": "behind",
+      "key": "behindMB",
+      "label": "DR behind by",
+      "unit": "MB",
+      "exec": true,
+      "min": 0,
+      "decimals": 0,
+      "explain": "Grows while {failedRegion} is down, drains during the catch-up"
+    },
+    {
+      "id": "lograte",
+      "key": "logMBps",
+      "label": "Log generated",
+      "unit": "MB/s",
+      "exec": true,
+      "min": 0,
+      "decimals": 1
+    },
+    {
+      "id": "logsize",
+      "key": "logSizeMB",
+      "label": "Primary log size",
+      "unit": "MB",
+      "exec": true,
+      "min": 0,
+      "decimals": 0,
+      "explain": "Can't be truncated while a replica is missing, even with log backups"
+    },
+    {
+      "id": "diskfree",
+      "key": "diskFreePct",
+      "label": "Log volume free",
+      "unit": "%",
+      "exec": true,
+      "min": 0,
+      "decimals": 1,
+      "thresholds": [
+        {
+          "value": 25,
+          "label": "warning",
+          "tone": "warn"
+        },
+        {
+          "value": 15,
+          "label": "writer stops",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "id": "lag",
+      "key": "lagSeconds",
+      "label": "DR lag (commits)",
+      "unit": "s",
+      "exec": true,
+      "min": 0,
+      "decimals": 1,
+      "explain": "Primary's last commit minus DR's last commit - grows during the outage, falls during the catch-up"
+    },
+    {
+      "id": "sendq",
+      "key": "sendQueueMB",
+      "label": "Send queue (primary)",
+      "unit": "MB",
+      "exec": false,
+      "min": 0,
+      "decimals": 1
+    },
+    {
+      "id": "redoq",
+      "key": "redoQueueMB",
+      "label": "Redo queue (DR)",
+      "unit": "MB",
+      "exec": false,
+      "min": 0,
+      "decimals": 1
+    },
+    {
+      "id": "logused",
+      "key": "logUsedPct",
+      "label": "Primary log used",
+      "unit": "%",
+      "exec": false,
+      "min": 0,
+      "decimals": 1
+    },
+    {
+      "id": "fwbehind",
+      "key": "fwBehindMB",
+      "label": "Forwarders behind by",
+      "unit": "MB",
+      "exec": false,
+      "min": 0,
+      "decimals": 0
+    },
+    {
+      "id": "readfresh",
+      "key": "readFreshnessSec",
+      "label": "Read freshness on DR",
+      "unit": "s",
+      "exec": true,
+      "min": 0,
+      "decimals": 1,
+      "explain": "What a report on {dr} sees: age of the newest readable row (no data while {dr} is down)"
+    },
+    {
+      "id": "slowcommit",
+      "key": "slowCommitMs",
+      "label": "Slowest commit",
+      "unit": "ms",
+      "exec": false,
+      "min": 0,
+      "decimals": 0,
+      "explain": "A spike here is the primary waiting for a synchronous replica"
+    },
+    {
+      "id": "dmvlag",
+      "key": "dmvLagSeconds",
+      "label": "secondary_lag_seconds (DMV)",
+      "unit": "s",
+      "exec": false,
+      "min": 0,
+      "decimals": 0
+    },
+    {
+      "id": "readok",
+      "key": "readOk",
+      "label": "Reads succeeding on DR",
+      "unit": "",
+      "exec": false,
+      "min": 0,
+      "decimals": 0
+    }
+  ],
+  "chartMarkers": [
+    "failure",
+    "recover",
+    "catchup",
+    "verify"
+  ],
+  "progress": [
+    {
+      "id": "catchup",
+      "label": "DR catch-up",
+      "phase": "catchup",
+      "percentKey": "catchupPct",
+      "etaKey": "etaSeconds",
+      "rateKey": "drainMBps",
+      "rateUnit": "MB/s net",
+      "remainingKey": "behindMB",
+      "remainingUnit": "MB",
+      "explain": "{dr} replaying the backlog",
+      "altKey": "reseedEtaSeconds",
+      "altLabel": "reseed instead ≈"
+    },
+    {
+      "id": "fwcatchup",
+      "label": "Forwarders catch-up",
+      "phase": "fwcatchup",
+      "percentKey": "fwCatchupPct",
+      "etaKey": "fwEtaSeconds",
+      "remainingKey": "fwBehindMB",
+      "remainingUnit": "MB",
+      "explain": "Forwarders in {failedRegion}"
+    }
+  ],
+  "criteria": [
+    {
+      "id": "available",
+      "label": "{primary} kept committing throughout the outage (no failed transactions)",
+      "metric": "writeErrors",
+      "op": "le",
+      "value": 0
+    },
+    {
+      "id": "throughput",
+      "label": "Throughput during the outage within 20% of the baseline",
+      "metric": "throughputImpactPct",
+      "op": "le",
+      "value": 20
+    },
+    {
+      "id": "logspace",
+      "label": "The primary's log volume never ran low (writer never stopped)",
+      "metric": "minDiskFreePct",
+      "op": "ge",
+      "value": 15
+    },
+    {
+      "id": "inplace",
+      "label": "{failedRegion} recovered in place - no failover, no reseed",
+      "metric": "recoveredInPlace",
+      "op": "eq",
+      "value": true
+    },
+    {
+      "id": "caughtup",
+      "label": "{dr} caught up: queue and lag back to normal",
+      "metric": "caughtUp",
+      "op": "eq",
+      "value": true
+    },
+    {
+      "id": "forwarders",
+      "label": "Forwarders in {failedRegion} caught up",
+      "metric": "forwardersCaughtUp",
+      "op": "eq",
+      "value": true
+    },
+    {
+      "id": "noloss",
+      "label": "Every committed transaction is on every replica",
+      "metric": "rowsMatch",
+      "op": "eq",
+      "value": true
+    },
+    {
+      "id": "ttr",
+      "label": "Time without DR recorded",
+      "metric": "timeUnprotectedSeconds",
+      "op": "exists"
+    }
+  ]
+}

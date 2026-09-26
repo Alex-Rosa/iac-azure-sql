@@ -18,7 +18,19 @@ systemctl stop mssql-server 2>/dev/null || true
 dnf remove mssql-server -y 2>/dev/null || true
 rm -rf /var/opt/mssql/data/*
 
+# SQL Server's data folder (every database's data and log files) goes on the data disk when it is
+# mounted: /sqldata/mssql-data bind-mounted on /var/opt/mssql/data, so SQL Server's paths don't change.
+# Without it the files land on the OS disk's small /var volume (see sqlvm-linux-ag.ps1 -Action relocate-data).
+if mountpoint -q /sqldata && ! mountpoint -q /var/opt/mssql/data; then
+  echo "--- Putting SQL Server's data folder on the data disk (/sqldata/mssql-data) ---"
+  mkdir -p /sqldata/mssql-data /var/opt/mssql/data
+  mount --bind /sqldata/mssql-data /var/opt/mssql/data
+  sed -i '\# /var/opt/mssql/data #d' /etc/fstab
+  echo "/sqldata/mssql-data /var/opt/mssql/data none bind,nofail,x-systemd.requires-mounts-for=/sqldata 0 0" >> /etc/fstab
+fi
+
 dnf localinstall -y "/tmp/$ENGINE_RPM"
+chown mssql:mssql /var/opt/mssql/data 2>/dev/null || true
 
 if [ -n "$HA_RPM" ] && [ -f "/tmp/$HA_RPM" ]; then
   echo "--- Installing HA companion package ($HA_RPM), best-effort ---"

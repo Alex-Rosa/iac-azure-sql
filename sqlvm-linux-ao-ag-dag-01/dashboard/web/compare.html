@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Run comparison</title>
+<style>
+:root {
+  --bg: #f4f6f9; --panel: #ffffff; --panel-2: #eef1f5; --border: #d9dee6; --text: #17202b; --muted: #5d6b7c; --faint: #9aa6b4;
+  --ok: #16834a; --ok-bg: #e3f5ea; --bad: #c62828; --bad-bg: #fde6e6; --warn: #b36b00;
+  --r0: #0b6bcb; --r1: #d9730d; --r2: #16834a; --r3: #7b3fb6; --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.08);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1319; --panel: #161d26; --panel-2: #1d2631; --border: #2a3542; --text: #e6edf5; --muted: #9aa8b8; --faint: #5d6b7c;
+    --ok: #3ccf7e; --ok-bg: #12301f; --bad: #ff6b6b; --bad-bg: #3a1618; --warn: #f0b04a;
+    --r0: #4da3ff; --r1: #ffa94d; --r2: #3ccf7e; --r3: #b58af0; --shadow: none;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1319; --panel: #161d26; --panel-2: #1d2631; --border: #2a3542; --text: #e6edf5; --muted: #9aa8b8; --faint: #5d6b7c;
+  --ok: #3ccf7e; --ok-bg: #12301f; --bad: #ff6b6b; --bad-bg: #3a1618; --warn: #f0b04a;
+  --r0: #4da3ff; --r1: #ffa94d; --r2: #3ccf7e; --r3: #b58af0; --shadow: none;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.wrap { max-width: 1500px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 22px; margin: 0; } .sub { color: var(--muted); font-size: 14px; }
+.top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+.icon-btn { border: 1px solid var(--border); background: var(--panel); color: var(--text); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow); margin-bottom: 14px; overflow-x: auto; }
+.card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 0 0 10px; }
+.runs { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+.run { border-left: 5px solid; padding: 6px 10px; background: var(--panel-2); border-radius: 8px; }
+.run b { font-variant-numeric: tabular-nums; } .run div { color: var(--muted); font-size: 13px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 6px 10px; border-top: 1px solid var(--border); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; font-size: 12.5px; text-transform: uppercase; letter-spacing: .04em; border-top: 0; }
+td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+td.pass { color: var(--ok); font-weight: 700; } td.fail { color: var(--bad); font-weight: 700; } td.pending, td.na { color: var(--faint); }
+.delta { color: var(--muted); font-size: 12.5px; }
+.charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 12px; }
+.chart { background: var(--panel-2); border-radius: 10px; padding: 10px 12px 6px; }
+.chart .cl { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.chart svg { width: 100%; height: auto; display: block; }
+.ax { font-size: 10px; fill: var(--muted); } .grid { stroke: var(--border); } .zero { stroke: var(--bad); stroke-dasharray: 4 4; }
+.legend { display: flex; gap: 14px; font-size: 12.5px; color: var(--muted); margin-top: 4px; flex-wrap: wrap; }
+.legend i { display: inline-block; width: 18px; height: 3px; vertical-align: middle; margin-right: 5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div><h1 id="title">Run comparison</h1><div class="sub" id="subtitle"></div></div>
+    <button type="button" class="icon-btn" id="theme" title="Theme">◐</button>
+  </div>
+  <section class="card"><h2>Runs</h2><div class="runs" id="runs"></div></section>
+  <section class="card"><h2>Key numbers</h2><table id="metrics"></table></section>
+  <section class="card"><h2>Charts (time since the failure)</h2><div class="charts" id="charts"></div></section>
+  <section class="card"><h2>Success criteria</h2><table id="criteria"></table></section>
+  <section class="card"><h2>Phase durations</h2><table id="phases"></table></section>
+</div>
+<script>
+(() => {
+  const D = window.__COMPARE__;
+  const $ = (id) => document.getElementById(id);
+  const NS = 'http://www.w3.org/2000/svg';
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const color = (i) => `var(--r${i % 4})`;
+  const fmtClock = (s) => { if (s == null) return '—'; const neg = s < 0; s = Math.abs(Math.round(s)); const m = Math.floor(s / 60), x = s % 60; return (neg ? '-' : '') + m + ':' + String(x).padStart(2, '0'); };
+  const fmt = (m) => {
+    const v = m.value;
+    if (v == null) return '—';
+    if (typeof v === 'boolean') return v ? 'yes' : 'no';
+    if (typeof v !== 'number') return esc(v);
+    if (m.format === 'duration') return fmtClock(v);
+    const d = Math.abs(v) >= 100 ? 0 : 1;
+    return v.toLocaleString('en-US', { maximumFractionDigits: d }) + (m.unit ? ' ' + esc(m.unit) : '');
+  };
+  document.getElementById('theme').onclick = () => {
+    const dark = document.documentElement.dataset.theme ? document.documentElement.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.dataset.theme = dark ? 'light' : 'dark';
+  };
+  if (!D) { $('subtitle').textContent = 'No data embedded.'; return; }
+  document.title = 'Compare · ' + D.title;
+  $('title').textContent = D.title;
+  $('subtitle').textContent = `${D.subtitle} — ${D.runs.length} runs, generated ${D.generatedUtc.substr(0, 16).replace('T', ' ')} UTC`;
+  $('runs').innerHTML = D.runs.map((r, i) =>
+    `<div class="run" style="border-color:${color(i)}"><b>${String.fromCharCode(65 + i)} · run ${esc(r.id)}</b><div>${esc(r.label || '')}</div><div>${esc(r.stack)}</div></div>`).join('');
+  const head = '<tr><th></th>' + D.runs.map((r, i) => `<th style="color:${color(i)}">${String.fromCharCode(65 + i)} · ${esc(r.id)}</th>`).join('') + (D.runs.length === 2 ? '<th>B − A</th>' : '') + '</tr>';
+
+  // Key numbers: every metric either run recorded.
+  const ids = [];
+  D.runs.forEach((r) => r.metrics.forEach((m) => { if (m.value != null && !ids.includes(m.id)) ids.push(m.id); }));
+  $('metrics').innerHTML = head + ids.map((id) => {
+    const ms = D.runs.map((r) => r.metrics.find((m) => m.id === id) || { value: null });
+    const label = (ms.find((m) => m.label) || {}).label || id;
+    let delta = '';
+    if (D.runs.length === 2 && typeof ms[0].value === 'number' && typeof ms[1].value === 'number') {
+      const d = ms[1].value - ms[0].value;
+      delta = `<td class="num delta">${d > 0 ? '+' : ''}${ms[0].format === 'duration' ? fmtClock(d) : d.toLocaleString('en-US', { maximumFractionDigits: 1 })}</td>`;
+    } else if (D.runs.length === 2) delta = '<td></td>';
+    return `<tr><td>${esc(label)}</td>` + ms.map((m) => `<td class="num ${m.status === 'pass' || m.status === 'fail' ? m.status : ''}">${fmt(m)}</td>`).join('') + delta + '</tr>';
+  }).join('');
+
+  const icon = { pass: '✓ pass', fail: '✕ fail', pending: '— not reached', 'n/a': 'n/a' };
+  const crit = D.runs[0].criteria.map((c) => c.id);
+  $('criteria').innerHTML = head.replace('<th>B − A</th>', '') + crit.map((id) => {
+    const cs = D.runs.map((r) => r.criteria.find((c) => c.id === id) || { status: 'pending' });
+    return `<tr><td>${esc(cs[0].label)}</td>` + cs.map((c) => `<td class="${c.status === 'n/a' ? 'na' : c.status}">${icon[c.status] || c.status}</td>`).join('') + '</tr>';
+  }).join('');
+
+  const phases = D.runs[0].phases;
+  $('phases').innerHTML = head.replace('<th>B − A</th>', '') + phases.map((p) => {
+    const ps = D.runs.map((r) => r.phases.find((x) => x.id === p.id) || {});
+    return `<tr><td><span class="delta">${esc(p.stage)} ·</span> ${esc(p.label)}</td>` +
+      ps.map((x) => `<td class="num ${x.status === 'failed' ? 'fail' : ''}">${x.seconds != null && ['done', 'failed', 'running'].includes(x.status) ? fmtClock(x.seconds) : (x.status === 'skipped' ? 'skipped' : '—')}</td>`).join('') + '</tr>';
+  }).join('');
+
+  // Charts: every run on one axis, t = 0 at its failure.
+  const W = 460, H = 170, L = 40, R = 8, T = 10, B = 20;
+  const chartIds = [];
+  D.runs.forEach((r) => r.charts.forEach((c) => { if (c.points.length && !chartIds.includes(c.id)) chartIds.push(c.id); }));
+  const box = $('charts');
+  for (const id of chartIds) {
+    const series = D.runs.map((r) => r.charts.find((c) => c.id === id)).map((c) => (c ? c.points : []));
+    const def = D.runs.map((r) => r.charts.find((c) => c.id === id)).find(Boolean);
+    const all = series.flat();
+    if (!all.length) continue;
+    const x0 = Math.min(...all.map((p) => p[0])), x1 = Math.max(...all.map((p) => p[0]), x0 + 1);
+    let lo = Math.min(0, ...all.map((p) => p[1])), hi = Math.max(...all.map((p) => p[1]));
+    if (hi - lo < 1e-9) hi = lo + 1;
+    const x = (v) => L + ((v - x0) / (x1 - x0)) * (W - L - R), y = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+    const div = document.createElement('div'); div.className = 'chart';
+    div.innerHTML = `<div class="cl">${esc(def.label)}${def.unit ? ' (' + esc(def.unit) + ')' : ''}</div>`;
+    const g = document.createElementNS(NS, 'svg'); g.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    const add = (tag, attrs, text) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; g.appendChild(e); return e; };
+    for (const v of [lo, hi]) { add('line', { x1: L, x2: W - R, y1: y(v), y2: y(v), class: 'grid' }); add('text', { x: L - 4, y: y(v) + 3, 'text-anchor': 'end', class: 'ax' }, v.toLocaleString('en-US', { maximumFractionDigits: def.decimals ?? 1 })); }
+    if (x0 <= 0 && x1 >= 0) { add('line', { x1: x(0), x2: x(0), y1: T, y2: H - B, class: 'zero' }); add('text', { x: x(0) + 3, y: T + 9, class: 'ax' }, 'failure'); }
+    series.forEach((pts, i) => {
+      if (!pts.length) return;
+      const p = add('path', { d: pts.map((q, k) => (k ? 'L' : 'M') + x(q[0]).toFixed(1) + ',' + y(q[1]).toFixed(1)).join(' '), fill: 'none', 'stroke-width': 2 });
+      p.style.stroke = color(i);
+    });
+    add('text', { x: L, y: H - 5, class: 'ax' }, fmtClock(x0));
+    add('text', { x: W - R, y: H - 5, 'text-anchor': 'end', class: 'ax' }, fmtClock(x1));
+    div.appendChild(g);
+    const lg = document.createElement('div'); lg.className = 'legend';
+    lg.innerHTML = D.runs.map((r, i) => `<span><i style="background:${color(i)}"></i>${String.fromCharCode(65 + i)}</span>`).join('');
+    div.appendChild(lg);
+    box.appendChild(div);
+  }
+  if (!box.children.length) box.innerHTML = '<div class="sub">No charts for this use case.</div>';
+})();
+</script>
+</body>
+</html>

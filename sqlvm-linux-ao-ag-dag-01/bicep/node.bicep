@@ -22,7 +22,7 @@ var nodeName = '${namePrefix}-${nodeSuffix}'
 // First /24 after the network address, e.g. 10.10.0.0/16 -> 10.10.1.0/24
 var subnetPrefix = cidrSubnet(addressSpace, 24, 1)
 
-// Same first-boot orchestration on both nodes: format/mount the data disk to /sqldata and
+// Same first-boot orchestration on both nodes: format/mount the data disk (found by LUN) to /sqldata and
 // open the ports SQL Server + the Always On mirroring endpoint need at the OS firewall level
 // (the NSG below controls it at the network level; both must agree).
 var cloudInit = '''
@@ -37,12 +37,18 @@ packages:
   - unixODBC
 runcmd:
   - |
-    if [ -b /dev/sdb ] && ! mountpoint -q /sqldata 2>/dev/null; then
-      if ! blkid /dev/sdb &>/dev/null; then
-        mkfs.xfs /dev/sdb
+    # The data disk is LUN 0. Its device name depends on the VM generation (/dev/sdc on SCSI sizes,
+    # /dev/nvme0n2 on NVMe sizes such as v6/v7), so look it up by LUN - never assume /dev/sdb.
+    DEV=""
+    for p in /dev/disk/azure/data/by-lun/0 /dev/disk/azure/scsi1/lun0; do
+      if [ -e "$p" ]; then DEV=$(readlink -f "$p"); break; fi
+    done
+    if [ -n "$DEV" ] && ! mountpoint -q /sqldata 2>/dev/null; then
+      if ! blkid "$DEV" &>/dev/null; then
+        mkfs.xfs "$DEV"
       fi
       mkdir -p /sqldata
-      UUID=$(blkid -s UUID -o value /dev/sdb)
+      UUID=$(blkid -s UUID -o value "$DEV")
       echo "UUID=$UUID /sqldata xfs defaults,nofail 0 2" >> /etc/fstab
       mount /sqldata
     fi

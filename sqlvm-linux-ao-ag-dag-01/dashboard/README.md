@@ -33,16 +33,17 @@ and in light or dark mode (the ◐ button).
 
 ## Reading the dashboard
 
-The page has five areas, from top to bottom:
+The page has six areas, from top to bottom:
 - **Narration banner:** what is happening now.
 - **Topology:** the regions, nodes and replication links.
 - **Key numbers** and **Success criteria**, on the right.
+- **Monitoring:** progress bars and charts, for use cases that sample metrics (UC-02).
 - **Progress:** every phase of the use case.
 - **Events:** the log, newest first.
 
-The key numbers, success criteria and phases described here are UC-01's. They come from
-[`use-cases/uc-01/dashboard.json`](../use-cases/uc-01/dashboard.json), so another use case shows
-its own.
+The banner, topology, monitoring and events work the same for every use case. The key numbers,
+success criteria and phases come from each use case's `dashboard.json`. UC-01's and UC-02's are
+described below.
 
 ### Narration banner
 
@@ -67,6 +68,7 @@ AG1 (the global primary AG) at the top, then the forwarder AGs (AG2, AG3, ...).
 |---|---|
 | ● UP (green) | At least one node in the region is running. |
 | ■ REGION DOWN (red, dashed red outline, tinted) | Every node in the region is stopped, stopping or deallocated. |
+| ✂ PARTITIONED (red, dotted outline, tinted) | Every node in the region is running but cut off from the other region by the network (UC-02 `-FailureMode partition`). |
 | ▲ RECOVERING (amber) | A node in the region is starting. |
 
 The line under the region name is its role in the use case: *primary region* (the one that
@@ -81,6 +83,7 @@ fails) or *DR region* (the one that takes over).
 | Blue border | Primary replica of its own AG. |
 | Red dashed border, greyed text | The VM is off. |
 | Amber dashed border, 🔒 FENCED | NSG deny rules isolate the node (1433 in, 5022 in and out), so a stale primary can't take clients or talk to other replicas. |
+| Red dotted border, ✂ CUT OFF | The node runs, but its AG traffic with the other region is blocked (network partition). |
 | AG label (AG1, AG2, ...) | The AG the node belongs to. The technical view adds the VM name and private IP. |
 
 **Role pills**
@@ -108,19 +111,54 @@ full description. The technical view writes the state next to every link.
 | Solid green | `━━━` | healthy | The link is connected and healthy (set by the pre-check). |
 | Green dashes moving along the arrow | `━▶━` | synchronizing / synchronized | Changes are replicating. *synchronizing* is the normal state of an asynchronous link; *synchronized* is shown during the failback, when AG1 is temporarily synchronous. |
 | Amber dashes moving | `╍▶╍` | seeding | A replica is being rebuilt from scratch (automatic seeding after a rejoin). |
+| Thicker amber dashes moving fast | `━▶━` (amber) | catching-up | A replica is back and replaying the log it missed while it was down (UC-02). |
 | Amber dotted | `╍ ╍` | suspended | The link points at the right primary but data movement is paused. This happens right after the distributed AGs are repointed, until the forwarder is resumed. |
 | Red dotted | `╳ ╳` | down | The source or the target is gone, e.g. its region is powered off. |
 | Red dotted | `╳╳╳` | not-synchronizing | Both ends are up, but the forwarder can't resynchronize: it holds transactions the new global primary never had, and needs a re-seed (`-ReseedForwarder`). |
 | Faint grey dotted | (blank) | removed | The replica was removed from the AG (the lost primary after the forced failover). |
+
+**Link notes.** A short text under a link gives its current figure, e.g. "812 MB behind · ETA 1:40"
+while a replica catches up, or "not converging" when its backlog isn't shrinking. In the terminal
+it is in brackets after the link.
 
 **Application box**
 
 The *Application* box at the top stands for the clients. A **blue moving arrow** ("writes →
 node-2") points to the node that can accept transactions: the running global primary. From the
 region failure until the forced failover, the box turns **red** ("no writable primary"). That is
-the outage the clock measures.
+the outage the clock measures. In UC-02 the arrow never moves: the primary is never lost.
 
-### Key numbers
+### Monitoring
+
+Use cases that sample the primary while they run (UC-02) add a **Monitoring** card.
+
+**Progress bars** (e.g. *DR catch-up*):
+- **The bar:** % done. It is **amber** while running, **green** when done and **red** if it failed.
+- **On the right:** the **ETA**, which counts down between refreshes, then *MB left* and the
+  **net rate**. The net rate is how fast the backlog shrinks, including the new log that keeps
+  arriving.
+- **"ETA unknown – not converging":** the backlog isn't shrinking. The replica can't keep up with
+  the load.
+- **"reseed instead ≈ m:ss":** how long copying the databases again would take (UC-02). When it
+  beats the catch-up ETA by a wide margin, a warning recommends a reseed.
+
+**Charts.** Each one shows one reading over time:
+- The latest value is in the top right, with the lowest and highest values on the left axis and
+  the start and end times below.
+- **Dashed vertical lines** mark the start of the key phases (region failure, in-place recovery,
+  catch-up, verify), so you can see what each change coincides with.
+- **Dashed horizontal lines** are thresholds, e.g. the *warning* and *writer stops* levels of the
+  log volume's free space.
+- The executive view shows the main charts. The technical view adds the send and redo queues, the
+  log used % and the forwarders' backlog.
+
+The terminal shows the same data as **sparklines** (▁▂▃▅▇): one line per chart with the latest,
+lowest and highest value, and a text progress bar with the ETA.
+
+**Warnings.** Events such as *low disk*, *not converging* or *log on the OS disk* appear in amber
+(⚠) in the event log, in both views.
+
+### UC-01 key numbers
 
 A tile is **green** when it meets its target, **red** when it misses it, **white** when it has
 no target, and **grey (—)** until it's measured. Targets are set in `dashboard.json`
@@ -137,7 +175,7 @@ no target, and **grey (—)** until it's measured. Targets are set in `dashboard
 | Forced failover took | technical | Duration of `FORCE_FAILOVER_ALLOW_DATA_LOSS` + removing the lost replica on the DR node. |
 | Failback role swap took | technical | Planned failback, from switching to synchronous commit until the original primary is PRIMARY again with the original modes restored. |
 
-### Success criteria
+### UC-01 success criteria
 
 These are UC-01's success criteria, from its README. Each one is evaluated on a metric the script
 records:
@@ -159,7 +197,7 @@ records:
 | Every forwarder synchronizing after reinstate | After reinstate, every forwarder, including those that went down with the region, is SYNCHRONIZING from the new global primary. | Re-attach forwarders |
 | Applications redirected (DNS) | The Private DNS record was pointed at the new primary. Not applicable without `-PrivateDnsZone` (clients are then repointed outside the drill). | Redirect clients |
 
-### Progress
+### UC-01 progress phases
 
 There is one row per stage, which runs as a separate action of the use case. Each phase shows
 its status icon (✓ done, ▸ running, ✕ failed, ↷ skipped, empty = not started) and how long it
@@ -203,6 +241,77 @@ took. Hover over a phase for its explanation and result. The stage label reads *
 | Role swap | The AG is taken offline on the current primary, the original primary is promoted, the other is demoted, and the original commit modes are restored. |
 | Repoint DAGs | Every distributed AG follows the primary back, on both sides, and the forwarders must resynchronize. |
 | Redirect + verify | DNS back to the original primary (when `-PrivateDnsZone` is used), then a write test. |
+
+### UC-02 key numbers
+
+The tiles fed by samples are **live**: they show the newest reading and change while you watch.
+These are primary throughput, DR behind by, transactions not yet on DR, DR lag, read freshness and
+log volume free. The others are recorded once their phase has run. Tile colours work as for UC-01.
+
+| Number | View | Meaning |
+|---|---|---|
+| **Time without DR** (clock) | both | Starts when the DR region fails and stops when the DR replica has caught up. **Red and ticking** while the system has no up-to-date DR copy; a second failure, of the primary, would lose what the DR replica hasn't received. |
+| **Catch-up** (clock) | both | From the DR replica's reconnect to caught up. |
+| **Primary throughput** | both | Transactions the workload commits per second, now. It should not drop during the outage: with asynchronous commit the primary never waits for the DR replica. |
+| **DR behind by** | both | Log the DR replica doesn't have yet. While it is down: everything the primary logged since the failure. Once it is back: its send + redo queue. |
+| **Transactions not yet on DR** | both | The same backlog in transactions: counted exactly while the DR replica is down, estimated from the queue (and the baseline's transactions per MB) once it's back. |
+| **DR lag (commits)** | both | The primary's last commit time minus the DR replica's last commit time (`last_commit_time`, read on the primary). It is the span of committed transactions the DR copy doesn't have, in milliseconds. It is a fraction of a second while DR keeps up, **grows through the outage** (the replica's last commit stays where it was), and falls during the catch-up. It is the data a failover at that moment would lose. |
+| **Read freshness on DR** | both | What a report on the DR replica sees: now minus the commit time of the newest row it can read (a reader queries it every 2 s). Measured from the application's side, independently of the DMVs. There is no value while the VM is off; during a partition it grows every second. |
+| **Log volume free** | both | Free space on the volume holding the primary's log. Target ≥ 25 %: amber below it, and the writer stops itself below 15 %. |
+| **Why the log can't be truncated** | both | `log_reuse_wait_desc` of the database. **AVAILABILITY_REPLICA** means the log is kept for a replica that hasn't received it yet: the log grows during the outage even with log backups. It is back to LOG_BACKUP or NOTHING once the replica has caught up. |
+| **Throughput impact** | both | Drop of the average throughput during the outage compared with the baseline. Target ≤ 20 %. |
+| **Failed transactions** | both | Transactions the writer couldn't commit over the whole run. Target 0. |
+| **Commit stall after the failure** | both | Time until the primary's throughput was back to half its baseline after the failure. It is about 0 with an asynchronous DR replica, and about the session timeout (10 s) with `-DrCommitMode sync`. |
+| **Primary protected** | both | Yes when the missing replicas were removed so the primary's log could be truncated (`-ProtectPrimaryAtFreePercent` or `-Action protect-primary`). They are then re-seeded instead of caught up. |
+| **Catch-up or reseed?** | both | Which one was, or would have been, faster: *catch-up* when the replica caught up before the estimated reseed time; *reseed* when catching up was over 1.5× slower or not converging. |
+| **Workload stopped** | both | Why the writer stopped by itself, e.g. *disk guard (14.9 % free)* when the log volume nearly filled. |
+| **Backlog built up** | both | Log generated while the DR region was down: what the catch-up has to replay. |
+| **Time without DR / Catch-up time** | both | The final values of the two clocks. |
+| Primary log size, Log generated (MB/s), Send queue, Redo queue | technical | Live values behind the charts. The send queue is log not yet sent (on the primary); the redo queue is log received but not yet replayed (on the DR replica). |
+| secondary_lag_seconds (DMV) | technical | SQL Server's own lag column, shown for comparison: whole seconds (it reads 0 while the replica is less than a second behind), and only while the replica is connected. |
+| Forwarder lag (commits), Slowest commit, Re-seeded | technical | The same lag for the forwarders in the failed region; the writer's slowest commit; whether a reseed happened. |
+| Baseline throughput / log rate / lag | technical | Measured before the failure; the catch-up threshold and the throughput impact are relative to them. |
+| Throughput during outage, Transactions during outage | technical | Average and total while the DR region was down. |
+| Peak log size, Lowest log volume free | technical | Extremes reached on the primary (lowest free target ≥ 15 %). |
+| Region start → reconnect | technical | From the VM start request until the DR replica is CONNECTED again. |
+| Peak backlog after reconnect, Average catch-up rate | technical | The largest queue after the reconnect, and that queue divided by the catch-up time (net of the log still arriving). |
+| Rows on the primary / on DR | technical | Rows the workload committed, counted on each replica after the writer stopped. |
+
+### UC-02 success criteria
+
+| Criterion | Passes when | Evaluated in |
+|---|---|---|
+| node-1 kept committing throughout the outage | The writer's failed transactions = 0. | Running without DR, Verify |
+| Throughput during the outage within 20 % of the baseline | The throughput impact is ≤ 20 %. | Running without DR |
+| The primary's log volume never ran low | The lowest free space on the log volume stayed ≥ 15 % (the writer's disk guard never triggered). | Running without DR |
+| West US 2 recovered in place - no failover, no reseed | The DR replica reconnected after its region restarted, as it was. | In-place recovery |
+| node-2 caught up: queue and lag back to normal | Every DR database is SYNCHRONIZING, with its queue and lag back within max(threshold, 2 × baseline). | DR catch-up |
+| Forwarders in West US 2 caught up | The distributed AGs of the forwarders in the failed region are SYNCHRONIZING with a normal queue. Not applicable when no forwarder is there. | Forwarders catch-up |
+| Every committed transaction is on every replica | After the writer stopped and the queues drained, the primary, the DR replica and every forwarder hold the same number of rows. | Verify |
+| Time without DR recorded | The time from the failure to caught up was measured. | DR catch-up |
+
+### UC-02 progress phases
+
+**Secondary region outage drill** (`-Action drill`; the single actions run the same phases)
+
+| Phase | What happens |
+|---|---|
+| Pre-check | Every VM running, every AG and distributed AG healthy, and where the primary's log lives and how much room it has. A new run starts here. |
+| Start workload | The writer sessions and the periodic log backups start on the primary (the profile is in the narration). |
+| Baseline | `-WarmupSeconds` of normal operation: throughput, log rate, DR queue and lag. The catch-up threshold and the throughput impact are measured against it. |
+| Region failure | Hard power-off of every VM in the DR region, or a network partition. **The "time without DR" clock starts.** node-1 stays PRIMARY. |
+| Running without DR | `-OutageMinutes` of monitoring: the backlog, the lag and the primary's log grow, and the log volume's free space shrinks. Below `-ProtectPrimaryAtFreePercent`, the primary is protected here. |
+| In-place recovery | The region's VMs start (or the partition rules are removed), and the DR replica reconnects (data movement is resumed if it was suspended). If the primary was protected, the DR replica and the forwarders are re-seeded instead. **The catch-up clock starts.** |
+| DR catch-up | The DR replica replays the backlog: the progress bar shows % done, MB left, the net rate and the ETA. **Both clocks stop** when it is back to normal. |
+| Forwarders catch-up | The same for the forwarders in the failed region (skipped when there are none). |
+| Verify | The writer is stopped, the queues drain, and rows are counted on every replica. |
+
+**Cleanup (optional)** (`-Action cleanup`)
+
+| Phase | What happens |
+|---|---|
+| Stop workload | The writer sessions and the log backups stop. |
+| Reclaim space | The load table is emptied, the log is backed up and shrunk. |
 
 ### Events
 
@@ -250,6 +359,32 @@ dashboard events existed and was converted from its evidence files: timestamps o
 events are exact, while a few phase boundaries that were never logged (marked `"approx": true` in
 its `events.jsonl`) were inferred from the logs. The original is kept as `events.v1.jsonl`.
 
+## Reports and comparisons
+
+A **report** is the dashboard page at the end of a run, saved as one self-contained HTML file with
+every chart, key number, criterion and event. It needs no server: open it, mail it, or put it next
+to your slides. UC-01 and UC-02 write one at the end of every drill (`runs/<rg>/<run-id>/report.html`).
+
+```
+pwsh ./dashboard/dashboard.ps1 -UseCase uc-02 -Report latest                  # or a run id
+pwsh ./use-cases/uc-02/uc-02.ps1 -Action report ...                            # the current run
+```
+
+A **comparison** puts two or more runs side by side. It is a static page with:
+- **Key numbers:** one column per run, plus B − A when there are two.
+- **Success criteria** and **phase durations** per run.
+- **Every chart** with all the runs overlaid on a common time axis, **t = 0 at each run's failure**.
+  This shows directly how, say, a heavy workload or a synchronous DR replica changes the backlog and
+  the catch-up.
+
+```
+pwsh ./dashboard/dashboard.ps1 -UseCase uc-02 -Compare 20260926-012935,20260927-093000
+pwsh ./dashboard/dashboard.ps1 -UseCase uc-02 -Compare stackA-rg/20260926-012935,stackB-rg/20260927-093000
+```
+
+It is written to `runs/<rg>/compare-<A>-vs-<B>.html`, or to `-Out`. Both are also in the wizard:
+`./dashboard/dashboard.ps1` with no parameters → *Report* or *Compare two runs*.
+
 ## Options
 
 | Parameter | Default | |
@@ -265,24 +400,45 @@ its `events.jsonl`) were inferred from the logs. The original is kept as `events
 | `-Port` | 8765 | web server port (localhost only) |
 | `-PowerPollSeconds` | 30 | live VM power-state poll, `0` = off |
 | `-NoBrowser` | | don't open the browser |
+| `-Report` | | run id or `latest`: write a static HTML report instead of serving |
+| `-Compare` | | two or more run ids (or `<stack>/<run id>`): write a static comparison |
+| `-Out` | | output file of `-Report` / `-Compare` |
 
 ## Adding a use case to the dashboard
 
-1. **`use-cases/uc-NN/dashboard.json`**: the title, stages and phases (with a plain-language
-   `explain` per phase), clocks, metrics (`exec: true` = shown in the executive view, optional
-   `target`) and success criteria (`metric` + `op`: `exists`, `eq`, `le`, `ge`).
-   `{placeholders}` are filled from the topology `params` (a `...Region` placeholder shows the
-   region's display name). See `use-cases/uc-01/dashboard.json`.
-2. **Events from the script**: dot-source `use-cases/common/uc-events.ps1`, point it at the run
-   folder with `Set-UcEventSink { <returns runs/<rg>/<run-id>> }`, then call:
+1. **`use-cases/uc-NN/dashboard.json`**:
+   - The title, the stages and phases (with a plain-language `explain` per phase) and the clocks.
+   - **Metrics:**
+     - `exec: true` shows the metric in the executive view.
+     - `target` with `targetOp` (`le`, the default, or `ge`) colours the tile.
+     - `"sample": "<key>"` makes the tile live, showing the newest sample of that key.
+     - `"format": "duration"` shows seconds as m:ss.
+   - **Success criteria:** `metric` + `op` (`exists`, `eq`, `le`, `ge`).
+   - **Monitoring (optional):**
+     - `charts`: one `key` per chart, plus `unit`, `min`, `decimals` and `thresholds`.
+     - `chartMarkers`: phase ids drawn as vertical lines on the charts.
+     - `progress`: `phase`, `percentKey`, `etaKey`, `rateKey` and `remainingKey`, all keys of the
+       samples.
+   - `{placeholders}` are filled from the topology `params` (a `...Region` placeholder shows the
+     region's display name).
+
+   See `use-cases/uc-01/dashboard.json` and `use-cases/uc-02/dashboard.json`.
+2. **The script**: build it on the shared framework, [`use-cases/common/uc-common.ps1`](../use-cases/common/uc-common.ps1).
+   Its header says what to set before dot-sourcing it; after that, `Connect-UcAzure`,
+   `Initialize-UcTopology` and `Invoke-UcMain` give the same prompts, topology, run folder,
+   `-Dashboard` switch and session handling as every other use case. The events it writes come
+   from `use-cases/common/uc-events.ps1`:
    - `Write-UcTopology` once per process (nodes, AG groups, links, params). Later calls merge,
      so roles and links survive across actions.
    - `Set-UcAction <action> started|completed|failed`
    - `Set-UcPhase <phase-id> running|done|failed|skipped`
    - `Set-UcNode` / `Set-UcLink` whenever a role, power state, fence or replication link changes
+     (`Set-UcLink -Note` puts a figure on the link; `-Quiet` refreshes it without a log line)
+   - `Set-UcSample @{ key = value; ... }` for each set of monitoring readings (charts, live tiles,
+     progress bars)
    - `Set-UcMetric <id> <value>` for every measured value (criteria are evaluated on metrics)
    - `Set-UcClock <id> start|stop -At <utc>` for a live clock
    - `Write-UcEvent` for anything else worth showing in the log
 
-   `uc-01.ps1` is the reference: `Start-UcSession` and the `finally` block show how to open and
-   close a session (a failed or cancelled action marks its running phase as failed).
+   `uc-01.ps1` and `uc-02.ps1` are the references. `Invoke-UcMain` opens and closes the session:
+   a failed or cancelled action marks its running phase as failed.

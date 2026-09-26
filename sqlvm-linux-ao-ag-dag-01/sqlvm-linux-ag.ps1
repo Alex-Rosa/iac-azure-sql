@@ -52,11 +52,15 @@
     # runs use-cases/uc-01/uc-01.ps1 -Action status (it asks for its own remaining inputs)
 
 .EXAMPLE
+    ./sqlvm-linux-ag.ps1 -Action relocate-data -Identifier ag01 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2
+    # mounts the data disk on /sqldata and moves SQL Server's files there (secondary first, then primary)
+
+.EXAMPLE
     ./sqlvm-linux-ag.ps1 -Action dashboard
     # runs dashboard/dashboard.ps1, which asks for the use case, live or replay, web or terminal
 #>
 param(
-    [ValidateSet('', 'deploy', 'remove', 'status', 'output', 'refresh-access', 'failover-to-secondary', 'deploy-dag', 'status-dag', 'remove-dag', 'dashboard')]
+    [ValidateSet('', 'deploy', 'remove', 'status', 'output', 'refresh-access', 'failover-to-secondary', 'deploy-dag', 'status-dag', 'remove-dag', 'dashboard', 'relocate-data')]
     [string]$Action = '',
 
     # Use cases: use-cases/<id>/<id>.ps1, e.g. -UseCase uc-01 (or 1). -UseCaseAction is passed to it
@@ -1231,7 +1235,8 @@ $MenuSections = [ordered]@{
         @('status-dag', 'Distributed AG - AG + distributed AG state of both stacks'))
     'Operate' = @(
         @('refresh-access',        'Allow your current public IP on SSH (22) / SQL (1433)'),
-        @('failover-to-secondary', "Force failover of a stack's AG to its secondary"))
+        @('failover-to-secondary', "Force failover of a stack's AG to its secondary"),
+        @('relocate-data',         "Move SQL Server's data + log files to the data disk (/sqldata)"))
 }
 
 # Every use-cases/uc-NN/ folder that has a uc-NN.ps1; the title is the first line of its README.
@@ -1269,7 +1274,7 @@ function Read-MenuAction {
         'stack (2-node AG), Distributed AG link',
         'stack or one node, Distributed AG link',
         'stack status, connection info, Distributed AG status',
-        'refresh SSH/SQL access, failover to secondary',
+        'refresh SSH/SQL access, failover to secondary, move data to the data disk',
         "failure drills and runbooks ($($useCases.Count) available)",
         'live progress or replay of a use-case run (web / terminal)')
     while ($true) {
@@ -1844,6 +1849,29 @@ else {
         Write-Host ''
         Write-Host "Setting SSH (22) / SQL (1433) sources to: $($SourceCidrs -join ', ')" -ForegroundColor Cyan
         Update-NsgAccess $SourceCidrs
+    }
+    elseif ($Action -eq 'relocate-data') {
+        # Existing stacks: SQL Server's files live in /var/opt/mssql/data on the OS disk's small /var volume,
+        # and the data disk isn't mounted on NVMe VM sizes. Mount it (by LUN) and bind-mount a copy of the
+        # data folder there - SQL Server's paths don't change, so the AGs need no change either.
+        Import-SavedCredentials
+        if (-not $SaPassword) { Write-Error 'No saved credentials for this stack (state/<rg>.credentials.json).'; exit 1 }
+        Write-Host ''
+        Write-Host "Moving SQL Server's data and log files to the data disk (/sqldata) on $SecondaryVmName, then $PrimaryVmName." -ForegroundColor Cyan
+        Write-Host 'On each node SQL Server is stopped while its files are copied (about 1 min per 5 GB): the secondary stops' -ForegroundColor Yellow
+        Write-Host 'receiving changes meanwhile (it catches up after), and the PRIMARY''s databases are unavailable meanwhile.' -ForegroundColor Yellow
+        Confirm-Yes "Type 'yes' to continue"
+        foreach ($target in @(@{ Role = 'secondary'; Vm = $SecondaryVmName }, @{ Role = 'primary'; Vm = $PrimaryVmName })) {
+            $node = @{ Rg = $ResourceGroup; Vm = $target.Vm }
+            Write-Host ''
+            Write-Host "=== $($target.Vm) ($($target.Role)) ===" -ForegroundColor Cyan
+            $m = Invoke-NodeScriptRc -Node $node -Script 'ops-01-mount-data-disk.sh' -Label 'mount the data disk on /sqldata'
+            foreach ($k in @('DATA_DISK', 'FORMATTED', 'SQLDATA', 'SQLDATA_MB')) { foreach ($v in (Get-RcVals $m $k)) { Write-Host "  $k = $v" } }
+            $r = Invoke-NodeScriptRc -Node $node -Script 'ops-02-relocate-mssql-data.sh' -Arguments @($SaPassword) -Label 'move SQL Server data to /sqldata'
+            foreach ($k in @('DATA_MB', 'RELOCATED', 'DB', 'AG_ROLE', 'SPACE_MB')) { foreach ($v in (Get-RcVals $r $k)) { Write-Host "  $k = $v" } }
+        }
+        Write-Host ''
+        Write-Host "Done. Run it for every other stack too (e.g. the forwarder stacks), then check with -Action status-dag or a use case's status." -ForegroundColor Green
     }
     elseif ($Action -eq 'failover-to-secondary') {
         Assert-Tool 'ssh'

@@ -1,0 +1,2 @@
+# Drill evidence and transcripts are environment-specific (IPs, timings) - keep them out of git.
+runs/

@@ -1,4 +1,4 @@
--- UC-01 | any node | Compact AG status of THIS instance (one line per fact, run-command output is capped at 4 KB).
+-- shared | any node | Compact AG status of THIS instance (one line per fact, run-command output is capped at 4 KB).
 -- sqlcmd -v AgName="agsqlvm-node-1" -i 00-status.sql
 SET NOCOUNT ON;
 SELECT 'HOST=' + @@SERVERNAME;

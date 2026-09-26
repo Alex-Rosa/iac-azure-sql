@@ -26,6 +26,10 @@
     ./dashboard.ps1 -UseCase uc-01 -Mode web -RefreshSeconds 3  # live, newest stack/run
 .EXAMPLE
     ./dashboard.ps1 -UseCase uc-01 -Replay 20260925-015339 -Speed 5 -Mode both
+.EXAMPLE
+    ./dashboard.ps1 -UseCase uc-02 -Report latest                     # runs/<rg>/<run>/report.html
+.EXAMPLE
+    ./dashboard.ps1 -UseCase uc-02 -Compare 20260926-012935,20260927-093000
 #>
 param(
     [string]$UseCase = '',
@@ -54,7 +58,13 @@ param(
     [string]$Server = '',
     [switch]$NoBrowser,
     # Open the dashboard in a new Terminal window and return (used by the use cases' -Dashboard).
-    [switch]$Detach
+    [switch]$Detach,
+    # Static HTML report of a run ('latest' or a run id): the page at the end of the run, no server needed.
+    [string]$Report = '',
+    # Compare runs side by side (static HTML): run ids of -Stack, or '<stack>/<run id>' (2 or more).
+    [string[]]$Compare = @(),
+    # Output file of -Report / -Compare (default: next to the run(s)).
+    [string]$Out = ''
 )
 
 # Version 1 (unset variables): the state is built from JSON hashtables whose keys are optional.
@@ -189,10 +199,11 @@ function Read-Events {
 
 # ── Reducer: events (up to $Now) -> dashboard state ───────────────────────────
 function Get-DashState {
-    param([hashtable]$Manifest, [object[]]$Events, [datetime]$Now, [hashtable]$Meta, [hashtable]$Power)
+    param([hashtable]$Manifest, [object[]]$Events, [datetime]$Now, [hashtable]$Meta, [hashtable]$Power, [switch]$FullLog)
 
     $nodes = [ordered]@{}; $groups = [ordered]@{}; $links = [ordered]@{}; $params = @{}; $regions = @()
     $phases = @{}; $metrics = @{}; $clocks = @{}; $log = [System.Collections.Generic.List[object]]::new()
+    $series = @{}; $latest = @{}   # samples: key -> list of @(t, value), and the newest value of each key
     $action = $null; $lastT = $null
 
     $phaseLabel = @{}
@@ -204,6 +215,7 @@ function Get-DashState {
     foreach ($e in $Events) {
         if ($e.t -gt $Now) { break }
         $lastT = $e.t
+        $skipLog = $false
         $tech = $false; $text = $e.detail; $icon = ''
         switch ($e.kind) {
             'topology' {
@@ -211,7 +223,7 @@ function Get-DashState {
                 foreach ($n in $e.nodes) {
                     if ($nodes.Contains($n.id)) { foreach ($k in @('label', 'name', 'vm', 'rg', 'region', 'ip', 'group', 'stack')) { $nodes[$n.id][$k] = $n[$k] } }
                     else { $nodes[$n.id] = @{ id = $n.id; label = $n.label; name = $n.name; vm = $n.vm; rg = $n.rg; region = $n.region; ip = $n.ip
-                                              group = $n.group; stack = $n.stack; role = $n.role; global = [bool]$n.global; power = 'unknown'; powerT = $null; fenced = $false } }
+                                              group = $n.group; stack = $n.stack; role = $n.role; global = [bool]$n.global; power = 'unknown'; powerT = $null; fenced = $false; partitioned = $false } }
                 }
                 foreach ($g in $e.groups) { $groups[$g.id] = $g }
                 foreach ($l in $e.links) {
@@ -249,6 +261,7 @@ function Get-DashState {
                     if ($e.ContainsKey('role')) { $n.role = $e.role }
                     if ($e.ContainsKey('global')) { $n.global = [bool]$e.global }
                     if ($e.ContainsKey('fenced')) { $n.fenced = [bool]$e.fenced }
+                    if ($e.ContainsKey('partitioned')) { $n.partitioned = [bool]$e.partitioned }
                 }
             }
             'link' {
@@ -258,7 +271,20 @@ function Get-DashState {
                     $l.state = $e.state
                     if ($e.ContainsKey('from')) { $l.from = $e.from }
                     if ($e.ContainsKey('to')) { $l.to = $e.to }
+                    $l.note = if ($e.ContainsKey('note')) { $e.note } else { '' }   # a note lasts until the next change
                 }
+                if ($e.ContainsKey('quiet') -and $e.quiet) { $skipLog = $true }
+            }
+            'sample' {
+                $data = $e['data']
+                foreach ($k in $data.Keys) {
+                    $v = $data[$k]
+                    if ($null -eq $v) { continue }
+                    if (-not $series.ContainsKey($k)) { $series[$k] = [System.Collections.Generic.List[object]]::new() }
+                    $series[$k].Add(@($e.t, $v))
+                    $latest[$k] = $v
+                }
+                $skipLog = $true   # samples feed the charts, not the event log ('continue' would only leave the switch)
             }
             'metric' {
                 $metrics[$e.metric] = @{ value = $e.value; unit = $e.unit; detail = $e.detail; t = $e.t }
@@ -278,9 +304,12 @@ function Get-DashState {
                 $text = "$label $(if ($e.status -eq 'start') { 'started' } else { 'stopped' })$(if ($e.detail) { " - $($e.detail)" })"
             }
             default {
-                $tech = -not ($e.ContainsKey('level') -and $e.level -eq 'error')
+                # Errors and warnings are shown in the executive view too.
+                $tech = -not ($e.ContainsKey('level') -and $e.level -in @('error', 'warn'))
+                if ($e.ContainsKey('level') -and $e.level -eq 'warn') { $icon = '⚠' }
             }
         }
+        if ($skipLog) { continue }
         $level = if ($e.ContainsKey('level')) { $e.level } else { 'info' }
         $log.Add(@{ utc = $e.utc; event = $e.event; kind = $e.kind; text = $text; icon = $icon; level = $level; tech = $tech })
     }
@@ -329,17 +358,47 @@ function Get-DashState {
 
     $metricList = foreach ($m in $Manifest.metrics) {
         $v = $metrics[$m.id]
+        # "sample": <key> - a live value, the newest sample of that key (a recorded metric of the same id wins).
+        if (-not $v -and $m.sample -and $latest.ContainsKey($m.sample)) { $v = @{ value = $latest[$m.sample]; unit = $m.unit; detail = '' } }
         $status = 'pending'
         if ($v) {
             $status = 'info'
             if ($m.ContainsKey('target') -and $null -ne $m.target -and $v.value -is [ValueType] -and $v.value -isnot [bool]) {
-                $status = if ([double]$v.value -le [double]$m.target) { 'pass' } else { 'fail' }
+                $ok = if ($m.targetOp -eq 'ge') { [double]$v.value -ge [double]$m.target } else { [double]$v.value -le [double]$m.target }
+                $status = if ($ok) { 'pass' } else { 'fail' }
             }
         }
         # Set-UcMetric's default detail ("<id> = <value>") adds nothing next to the value.
         $detail = if ($v -and $v.detail -and $v.detail -notlike "$($m.id) = *") { $v.detail }
         [ordered]@{ id = $m.id; label = $m.label; unit = $m.unit; exec = [bool]$m.exec; explain = (Expand-Text $m.explain $params)
-                    target = $m.target; value = $(if ($v) { $v.value }); detail = $detail; status = $status }
+                    target = $m.target; targetOp = $(if ($m.targetOp) { $m.targetOp } else { 'le' }); live = [bool]$m.sample; format = $m.format
+                    value = $(if ($v) { $v.value }); detail = $detail; status = $status }
+    }
+
+    # Charts: one series per chart, from the samples; markers at the start of the listed phases.
+    $phaseLabel2 = @{}; foreach ($st in $Manifest.stages) { foreach ($p in $st.phases) { $phaseLabel2[$p.id] = $p.label } }
+    $markers = @(foreach ($phId in @($Manifest.chartMarkers | Where-Object { $_ })) {
+        $ph = $phases[$phId]
+        if ($ph -and $ph.start) { [ordered]@{ utc = (Format-UtcIso $ph.start); label = $phaseLabel2[$phId] } }
+    })
+    $chartList = foreach ($c in @($Manifest.charts)) {
+        if (-not $c) { continue }
+        $pts = if ($series.ContainsKey($c.key)) { @($series[$c.key] | Select-Object -Last 400) } else { @() }
+        [ordered]@{ id = $c.id; label = $c.label; unit = $c.unit; exec = [bool]$c.exec; explain = (Expand-Text $c.explain $params)
+                    decimals = $(if ($null -ne $c.decimals) { $c.decimals } else { 1 }); min = $c.min; thresholds = @($c.thresholds | Where-Object { $_ })
+                    latest = $(if ($latest.ContainsKey($c.key)) { $latest[$c.key] }); points = @($pts | ForEach-Object { , @((Format-UtcIso $_[0]), $_[1]) }) }
+    }
+    # Progress bars (e.g. catch-up): percent + ETA from the newest samples, while their phase runs (or once reached).
+    $progressList = foreach ($pg in @($Manifest.progress)) {
+        if (-not $pg -or -not $latest.ContainsKey($pg.percentKey)) { continue }
+        $ph = $phases[$pg.phase]
+        [ordered]@{ id = $pg.id; label = $pg.label; explain = (Expand-Text $pg.explain $params)
+                    percent = [math]::Round([double]$latest[$pg.percentKey], 1)
+                    etaSeconds = $(if ($pg.etaKey -and $latest.ContainsKey($pg.etaKey)) { $latest[$pg.etaKey] })
+                    rate = $(if ($pg.rateKey -and $latest.ContainsKey($pg.rateKey)) { $latest[$pg.rateKey] }); rateUnit = $pg.rateUnit
+                    remaining = $(if ($pg.remainingKey -and $latest.ContainsKey($pg.remainingKey)) { $latest[$pg.remainingKey] }); remainingUnit = $pg.remainingUnit
+                    alt = $(if ($pg.altKey -and $latest.ContainsKey($pg.altKey)) { $latest[$pg.altKey] }); altLabel = $pg.altLabel
+                    state = $(if ($ph) { $ph.status } else { 'pending' }) }
     }
 
     $criteria = foreach ($c in $Manifest.criteria) {
@@ -377,15 +436,21 @@ function Get-DashState {
     $regionList = foreach ($r in $regions) {
         $rn = @($nodes.Values | Where-Object { $_.region -eq $r })
         $off = @($rn | Where-Object { $_.power -in @('stopped', 'stopping', 'deallocated', 'deallocating') })
-        $state = if ($rn.Count -and $off.Count -eq $rn.Count) { 'down' } elseif (@($rn | Where-Object { $_.power -eq 'starting' }).Count) { 'recovering' } else { 'up' }
-        $role = if ($r -eq $params.failedRegion) { 'primary region' } elseif ($r -eq $params.drRegion) { 'DR region' } else { '' }
+        $cut = @($rn | Where-Object { $_.ContainsKey('partitioned') -and $_.partitioned })
+        $state = if ($rn.Count -and $off.Count -eq $rn.Count) { 'down' } elseif (@($rn | Where-Object { $_.power -eq 'starting' }).Count) { 'recovering' }
+                 elseif ($rn.Count -and $cut.Count -eq $rn.Count) { 'partitioned' } else { 'up' }
+        # primaryRegion is set by every use case; runs recorded before it existed only had failedRegion (= the primary's).
+        $primaryRegion = if ($params.primaryRegion) { $params.primaryRegion } else { $params.failedRegion }
+        $role = if ($r -eq $primaryRegion) { 'primary region' } elseif ($r -eq $params.drRegion) { 'DR region' } else { '' }
+        if ($params.primaryRegion -and $r -eq $params.failedRegion) { $role += ' · failure domain' }
         [ordered]@{ id = $r; label = $(if ($RegionNames.ContainsKey($r)) { $RegionNames[$r] } else { $r }); role = $role; state = $state }
     }
 
     $nodeList = foreach ($n in $nodes.Values) {
         [ordered]@{ id = $n.id; label = $n.label; name = $n.name; vm = $n.vm; region = $n.region; ip = $n.ip; group = $n.group
                     groupLabel = $(if ($groups.Contains($n.group)) { $groups[$n.group].label } else { $n.group }); stack = $n.stack
-                    role = $n.role; global = $n.global; power = $n.power; fenced = $n.fenced; powerLive = [bool]($n.ContainsKey('powerLive') -and $n.powerLive) }
+                    role = $n.role; global = $n.global; power = $n.power; fenced = $n.fenced; partitioned = [bool]($n.ContainsKey('partitioned') -and $n.partitioned)
+                    powerLive = [bool]($n.ContainsKey('powerLive') -and $n.powerLive) }
     }
     # Where the application's transactions can go: the running global primary.
     $writer = @($nodes.Values | Where-Object { $_.global -and $_.role -eq 'PRIMARY' -and $_.power -eq 'running' }) | Select-Object -First 1
@@ -399,7 +464,8 @@ function Get-DashState {
         meta = $Meta; title = $Manifest.title; subtitle = $Manifest.subtitle; params = $params
         narration = $narration; regions = @($regionList); groups = @($groups.Values); nodes = @($nodeList); links = @($links.Values)
         writer = $(if ($writer) { $writer.id }); stages = @($stages); metrics = @($metricList); clocks = @($clockList); criteria = @($criteria)
-        log = @($logArr | Select-Object -Last 60)
+        charts = @($chartList); chartMarkers = @($markers); progress = @($progressList)
+        log = $(if ($FullLog) { @($logArr) } else { @($logArr | Select-Object -Last 60) })
     }
 }
 
@@ -587,6 +653,7 @@ function Get-LinkStyle {
         'synchronizing'     { @{ c = $Ansi.green;  t = '━▶━' } }
         'synchronized'      { @{ c = $Ansi.green;  t = '━▶━' } }
         'seeding'           { @{ c = $Ansi.yellow; t = '╍▶╍' } }
+        'catching-up'       { @{ c = $Ansi.yellow; t = '━▶━' } }
         'suspended'         { @{ c = $Ansi.yellow; t = '╍ ╍' } }
         'not-synchronizing' { @{ c = $Ansi.red;    t = '╳╳╳' } }
         'down'              { @{ c = $Ansi.red;    t = '╳ ╳' } }
@@ -626,13 +693,14 @@ function Get-TerminalFrame {
         $colW = [math]::Floor(($W - 2) / $regions.Count)
         $cols = foreach ($r in $regions) {
             $lines = [System.Collections.Generic.List[string]]::new()
-            $rc = switch ($r.state) { 'down' { $Ansi.red } 'recovering' { $Ansi.yellow } default { $Ansi.green } }
-            $lines.Add("$($Ansi.bold)$($r.label.ToUpper())$($Ansi.reset) $($Ansi.gray)$($r.role)$($Ansi.reset) $rc$(switch ($r.state) { 'down' { '■ DOWN' } 'recovering' { '▲ RECOVERING' } default { '● UP' } })$($Ansi.reset)")
+            $rc = switch ($r.state) { 'down' { $Ansi.red } 'partitioned' { $Ansi.red } 'recovering' { $Ansi.yellow } default { $Ansi.green } }
+            $lines.Add("$($Ansi.bold)$($r.label.ToUpper())$($Ansi.reset) $($Ansi.gray)$($r.role)$($Ansi.reset) $rc$(switch ($r.state) { 'down' { '■ DOWN' } 'partitioned' { '✂ PARTITIONED' } 'recovering' { '▲ RECOVERING' } default { '● UP' } })$($Ansi.reset)")
             foreach ($n in @($S.nodes | Where-Object { $_.region -eq $r.id })) {
                 $pc = switch ($n.power) { 'running' { $Ansi.green } 'starting' { $Ansi.yellow } 'stopping' { $Ansi.yellow } 'unknown' { $Ansi.gray } default { $Ansi.red } }
                 $roleC = switch -Regex ($n.role) { '^PRIMARY$' { $Ansi.cyan } 'FORWARDER' { $Ansi.magenta } 'STALE|REMOVED|OUT OF AG' { $Ansi.red } 'SEEDING' { $Ansi.yellow } default { $Ansi.white } }
                 $star = if ($n.global -and $n.role -eq 'PRIMARY') { " $($Ansi.yellow)★$($Ansi.reset)" } else { '' }
                 $fence = if ($n.fenced) { " $($Ansi.bgYellow)$(if ($tech) { ' FENCED ' } else { ' 🔒 ' })$($Ansi.reset)" } else { '' }
+                if ($n.partitioned) { $fence += " $($Ansi.red)✂ PARTITIONED$($Ansi.reset)" }
                 $power = if ($n.power -ne 'running') { " $pc($($n.power))$($Ansi.reset)" } else { '' }
                 $lines.Add("  $pc●$($Ansi.reset) $($Ansi.bold)$($n.label)$($Ansi.reset) $($Ansi.gray)$($n.groupLabel)$($Ansi.reset) $roleC$($n.role)$($Ansi.reset)$star$fence$power")
                 if ($tech) { $lines.Add("    $($Ansi.gray)$($n.name) · $($n.ip)$($Ansi.reset)") }
@@ -652,7 +720,7 @@ function Get-TerminalFrame {
             $st = Get-LinkStyle $l.state
             $from = if ($byId.ContainsKey($l.from)) { $byId[$l.from].label } else { $l.from }
             $to = if ($byId.ContainsKey($l.to)) { $byId[$l.to].label } else { $l.to }
-            "$($Ansi.gray)$($l.label)$($Ansi.reset) $from $($st.c)$($st.t)$($Ansi.reset) $to $($st.c)$($l.state)$($Ansi.reset)"
+            "$($Ansi.gray)$($l.label)$($Ansi.reset) $from $($st.c)$($st.t)$($Ansi.reset) $to $($st.c)$($l.state)$($Ansi.reset)$(if ($l.note) { " $($Ansi.yellow)($($l.note))$($Ansi.reset)" })"
         }
         $frameLines.Add(" $app")
         $line = ' '
@@ -672,7 +740,10 @@ function Get-TerminalFrame {
     }
     foreach ($m in @($S.metrics | Where-Object { $tech -or $_.exec })) {
         $mc = switch ($m.status) { 'pass' { $Ansi.green } 'fail' { $Ansi.red } 'info' { $Ansi.white } default { $Ansi.gray } }
-        $val = if ($null -eq $m.value) { '—' } else { "$($m.value)$(if ($m.unit) { " $($m.unit)" })" }
+        $val = if ($null -eq $m.value) { '—' }
+               elseif ($m.format -eq 'duration' -and $m.value -is [ValueType]) { Format-Seconds $m.value }
+               elseif ($m.value -is [double] -or $m.value -is [decimal]) { "$([math]::Round([double]$m.value, $(if ([math]::Abs([double]$m.value) -ge 100) { 0 } else { 1 })))$(if ($m.unit) { " $($m.unit)" })" }
+               else { "$($m.value)$(if ($m.unit) { " $($m.unit)" })" }
         $kpi += "$($Ansi.gray)$($m.label)$($Ansi.reset) $mc$($Ansi.bold)$val$($Ansi.reset)"
     }
     $line = ' '
@@ -682,6 +753,33 @@ function Get-TerminalFrame {
     }
     $frameLines.Add($line)
     $frameLines.Add($rule)
+
+    # Monitoring: progress bars (catch-up + ETA) and one sparkline per chart
+    $charts = @($S.charts | Where-Object { $_ -and ($tech -or $_.exec) -and @($_.points).Count })
+    if (@($S.progress).Count -or $charts.Count) {
+        foreach ($pg in @($S.progress)) {
+            $barW = [math]::Max(20, [math]::Min(50, $W - 70))
+            $filled = [int][math]::Round($barW * [math]::Min(100, [math]::Max(0, $pg.percent)) / 100)
+            $pc = if ($pg.state -eq 'done') { $Ansi.green } elseif ($pg.state -eq 'failed') { $Ansi.red } else { $Ansi.yellow }
+            $eta = if ($pg.state -eq 'done') { 'done' } elseif ($null -ne $pg.etaSeconds -and $pg.etaSeconds -ge 0) { "ETA $(Format-Seconds $pg.etaSeconds)" } else { 'ETA unknown (not converging)' }
+            $extra = @()
+            if ($null -ne $pg.remaining) { $extra += "$([math]::Round([double]$pg.remaining, 1)) $($pg.remainingUnit) left" }
+            if ($null -ne $pg.rate) { $extra += "$([math]::Round([double]$pg.rate, 1)) $($pg.rateUnit)" }
+            if ($null -ne $pg.alt -and $pg.state -ne 'done') { $extra += "$($pg.altLabel) $(Format-Seconds $pg.alt)" }
+            $frameLines.Add(" $($Ansi.bold)$(Format-Pad $pg.label 16)$($Ansi.reset)$pc$('█' * $filled)$($Ansi.gray)$('░' * ($barW - $filled))$($Ansi.reset) $pc$($Ansi.bold)$($pg.percent)%$($Ansi.reset)  $eta  $($Ansi.gray)$($extra -join ' · ')$($Ansi.reset)")
+        }
+        $blocks = '▁▂▃▄▅▆▇█'
+        $sparkW = [math]::Max(16, [math]::Min(60, $W - 60))
+        foreach ($c in $charts) {
+            $vals = @($c.points | ForEach-Object { [double]$_[1] } | Select-Object -Last $sparkW)
+            $lo = ($vals | Measure-Object -Minimum).Minimum; $hi = ($vals | Measure-Object -Maximum).Maximum
+            if ($null -ne $c.min) { $lo = [math]::Min($lo, [double]$c.min) }
+            $spark = -join ($vals | ForEach-Object { $blocks[[int][math]::Floor(($_ - $lo) / [math]::Max(1e-9, $hi - $lo) * 7)] })
+            $last = [math]::Round([double]$c.latest, [int]$c.decimals)
+            $frameLines.Add(" $(Format-Pad $c.label 30)$($Ansi.cyan)$(Format-Pad $spark $sparkW)$($Ansi.reset) $($Ansi.bold)$last$($Ansi.reset) $($Ansi.gray)$($c.unit)  (min $([math]::Round($lo, [int]$c.decimals)), max $([math]::Round($hi, [int]$c.decimals)))$($Ansi.reset)")
+        }
+        $frameLines.Add($rule)
+    }
 
     # Stages
     $labelW = [math]::Max(12, (@($S.stages | ForEach-Object { $_.label.Length }) | Measure-Object -Maximum).Maximum + 1)
@@ -722,7 +820,7 @@ function Get-TerminalFrame {
     $entries = @($S.log | Where-Object { $tech -or -not $_.tech }) | Select-Object -Last ($logRoom - 1)
     foreach ($e in $entries) {
         $t = if ($e.utc) { ([datetime]::Parse($e.utc, [cultureinfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AdjustToUniversal)).ToString('HH:mm:ss') } else { '' }
-        $ec = if ($e.level -eq 'error') { $Ansi.red } elseif ($e.kind -eq 'phase') { $Ansi.white } else { $Ansi.gray }
+        $ec = if ($e.level -eq 'error') { $Ansi.red } elseif ($e.level -eq 'warn') { $Ansi.yellow } elseif ($e.kind -eq 'phase') { $Ansi.white } else { $Ansi.gray }
         $frameLines.Add((Format-Pad "  $($Ansi.gray)$t$($Ansi.reset) $ec$(if ($e.icon) { "$($e.icon) " })$($e.text)$($Ansi.reset)" ($W - 1)))
     }
     foreach ($f in $footer) { $frameLines.Add($f) }
@@ -841,6 +939,73 @@ function Invoke-WebDashboard {
     }
 }
 
+# ── Static report / comparison ─────────────────────────────────────────────────
+# The dashboard state at the end of a run (every event applied, full event log).
+function Get-FinalState {
+    param($Uc, [hashtable]$Manifest, [string]$StackName, [string]$RunId)
+    $stackDir = Join-Path $Uc.Dir 'runs' $StackName
+    if ($RunId -eq 'latest') { $RunId = @(Get-RunIds $stackDir)[-1] }
+    $file = Join-Path $stackDir $RunId 'events.jsonl'
+    $events = @(Read-Events $file)
+    if (-not $RunId -or $events.Count -eq 0) { Write-Error "Run '$RunId' not found (or empty) in $stackDir." }
+    $meta = [ordered]@{ useCase = $Uc.Id; stack = $StackName; mode = 'report'; runId = $RunId; refreshSeconds = $RefreshSeconds; view = $View
+                        generatedUtc = (Format-UtcIso ([datetime]::UtcNow)) }
+    return Get-DashState -Manifest $Manifest -Events $events -Now $events[-1].t.AddSeconds(1) -Meta $meta -Power $null -FullLog
+}
+
+function Write-StaticPage {
+    param([string]$Template, [string]$Variable, $Data, [string]$Path)
+    $json = ($Data | ConvertTo-Json -Depth 20 -Compress).Replace('</', '<\/')
+    $html = (Get-Content (Join-Path $WebDir $Template) -Raw).Replace("`r`n", "`n")
+    $marker = "<script>`n(() => {"
+    if (-not $html.Contains($marker)) { Write-Error "$Template has no '<script> (() => {' block to inject into." }
+    $html = $html.Replace($marker, "<script>window.$Variable = $json;</script>`n$marker")
+    New-Item -ItemType Directory -Force -Path (Split-Path $Path) | Out-Null
+    Set-Content -Path $Path -Value $html -Encoding utf8
+    Write-Host "Written: $Path" -ForegroundColor Green
+    Open-Url ([System.Uri]::new((Resolve-Path $Path).Path).AbsoluteUri)
+}
+
+function Export-DashReport {
+    $uc = Get-DashUseCases | Where-Object { $_.Id -eq $UseCase } | Select-Object -First 1
+    $manifest = Get-Content (Join-Path $uc.Dir 'dashboard.json') -Raw | ConvertFrom-Json -AsHashtable
+    $state = Get-FinalState -Uc $uc -Manifest $manifest -StackName $Stack -RunId $Report
+    $path = if ($Out) { $Out } else { Join-Path $uc.Dir 'runs' $Stack $state.meta.runId 'report.html' }
+    Write-StaticPage -Template 'index.html' -Variable '__DASH_STATIC__' -Data $state -Path $path
+}
+
+# Two or more runs side by side: key numbers, criteria, phase durations, and every chart overlaid on a
+# common time axis (seconds since each run's failure).
+function Export-DashCompare {
+    $uc = Get-DashUseCases | Where-Object { $_.Id -eq $UseCase } | Select-Object -First 1
+    $manifest = Get-Content (Join-Path $uc.Dir 'dashboard.json') -Raw | ConvertFrom-Json -AsHashtable
+    $refs = @($Compare | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
+    if ($refs.Count -lt 2) { Write-Error '-Compare needs at least two runs.' }
+    $runs = foreach ($ref in $refs) {
+        $st = if ($ref -like '*/*') { $ref.Split('/')[0] } else { $Stack }
+        $id = if ($ref -like '*/*') { $ref.Split('/')[1] } else { $ref }
+        $state = Get-FinalState -Uc $uc -Manifest $manifest -StackName $st -RunId $id
+        $failure = @($state.stages | ForEach-Object { $_.phases } | Where-Object { $_.id -eq 'failure' -and $_.startUtc }) | Select-Object -First 1
+        $t0 = if ($failure) { ConvertTo-UtcDate $failure.startUtc } else { $null }
+        $p = $state.params
+        $label = @($p.workload, $p.failureMode, $(if ($p.commitMode) { "DR $($p.commitMode)" })) | Where-Object { $_ }
+        [ordered]@{
+            id = $state.meta.runId; stack = $st; label = ($label -join ' · '); failureUtc = $(if ($t0) { Format-UtcIso $t0 })
+            metrics = $state.metrics; criteria = $state.criteria; clocks = $state.clocks
+            phases = @($state.stages | ForEach-Object { $stage = $_; $_.phases | ForEach-Object { [ordered]@{ stage = $stage.label; id = $_.id; label = $_.label; status = $_.status; seconds = $_.seconds } } })
+            charts = @($state.charts | ForEach-Object {
+                $c = $_
+                $origin = if ($t0) { $t0 } elseif (@($c.points).Count) { ConvertTo-UtcDate $c.points[0][0] } else { $null }
+                [ordered]@{ id = $c.id; label = $c.label; unit = $c.unit; decimals = $c.decimals; exec = $c.exec
+                            points = @($c.points | ForEach-Object { , @([math]::Round(((ConvertTo-UtcDate $_[0]) - $origin).TotalSeconds, 1), $_[1]) }) } })
+        }
+    }
+    $model = [ordered]@{ title = $manifest.title; subtitle = $manifest.subtitle; useCase = $uc.Id; generatedUtc = (Format-UtcIso ([datetime]::UtcNow)); runs = @($runs) }
+    $name = 'compare-' + (($runs | ForEach-Object { $_.id }) -join '-vs-') + '.html'
+    $path = if ($Out) { $Out } else { Join-Path $uc.Dir 'runs' $runs[0].stack $name }
+    Write-StaticPage -Template 'compare.html' -Variable '__COMPARE__' -Data $model -Path $path
+}
+
 # ── New window (use cases' -Dashboard, -Mode both) ─────────────────────────────
 function Start-DetachedTerminal {
     param([string[]]$ExtraArgs)
@@ -876,7 +1041,20 @@ if (-not $Stack) {
 }
 if ($Interactive) {
     $stackDir = Join-Path $ucDir.Dir 'runs' $Stack
-    $what = Read-Pick -Prompt 'Show' -Items @('live', 'replay') -Labels @('Live - follows the newest run (a new drill shows up by itself)', 'Replay a recorded run')
+    $what = Read-Pick -Prompt 'Show' -Items @('live', 'replay', 'report', 'compare') -Labels @(
+        'Live - follows the newest run (a new drill shows up by itself)', 'Replay a recorded run',
+        'Report - static HTML page of a finished run (for slides / evidence)', 'Compare two runs side by side (static HTML)')
+    if ($what -in @('report', 'compare')) {
+        $runs = @(Get-RunIds $stackDir)
+        [array]::Reverse($runs)
+        $labels = @($runs | ForEach-Object { "$_  $(Get-RunSummary (Join-Path $stackDir $_))" })
+        if ($what -eq 'report') { $Report = Read-Pick -Prompt 'Run' -Items $runs -Labels $labels }
+        else {
+            $a = Read-Pick -Prompt 'First run' -Items $runs -Labels $labels
+            $b = Read-Pick -Prompt 'Second run' -Items $runs -Labels $labels -Default ([math]::Min(2, $runs.Count))
+            $Compare = @($a, $b)
+        }
+    }
     if ($what -eq 'replay') {
         $runs = @(Get-RunIds $stackDir)
         [array]::Reverse($runs)
@@ -884,10 +1062,15 @@ if ($Interactive) {
         $s = Read-Line "Replay speed (x) [$Speed]"
         if ($s) { $Speed = [double]::Parse($s, [cultureinfo]::InvariantCulture) }
     }
-    $Mode = Read-Pick -Prompt 'Dashboard' -Items @('web', 'terminal', 'both') -Labels @('Web page (browser)', 'Terminal (text)', 'Both')
-    $r = Read-Line "Refresh every N seconds [$RefreshSeconds]"
-    if ($r) { $RefreshSeconds = [int]$r }
+    if ($what -in @('live', 'replay')) {
+        $Mode = Read-Pick -Prompt 'Dashboard' -Items @('web', 'terminal', 'both') -Labels @('Web page (browser)', 'Terminal (text)', 'Both')
+        $r = Read-Line "Refresh every N seconds [$RefreshSeconds]"
+        if ($r) { $RefreshSeconds = [int]$r }
+    }
 }
+
+if ($Report) { Export-DashReport; exit 0 }
+if ($Compare.Count) { Export-DashCompare; exit 0 }
 
 # Detach: re-launch in a new window with the same choices (the use case keeps running here).
 if ($Detach) {

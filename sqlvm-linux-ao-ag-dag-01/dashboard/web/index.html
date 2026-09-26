@@ -41,6 +41,7 @@ button, select { font: inherit; color: inherit; }
 .badge.live::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #fff; animation: pulse 1.4s infinite; }
 .badge.replay { background: var(--run); color: #fff; border-color: transparent; }
 .badge.off { background: var(--warn-bg); color: var(--warn); }
+.badge.report { background: var(--ok); color: #fff; border-color: transparent; }
 .meta { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
 .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--panel); }
 .seg button { border: 0; background: transparent; padding: 6px 12px; cursor: pointer; }
@@ -82,14 +83,17 @@ button, select { font: inherit; color: inherit; }
 .node.off .node-box { fill: var(--panel-2); stroke: var(--bad); stroke-dasharray: 5 4; }
 .node.off text { opacity: .6; }
 .node.fenced .node-box { stroke: var(--warn); stroke-width: 3; stroke-dasharray: 8 4; }
+.node.partitioned .node-box { stroke: var(--bad); stroke-width: 3; stroke-dasharray: 2 5; }
+.rg-box.partitioned { fill: var(--region-down); stroke: var(--bad); stroke-dasharray: 2 6; }
 .n-label { font-size: 17px; font-weight: 700; }
 .n-group { font-size: 12px; font-weight: 700; }
 .n-tech { font-size: 11.5px; fill: var(--muted) !important; }
 .pill { font-size: 11.5px; font-weight: 700; }
 .link { fill: none; stroke-width: 3; }
 .link.healthy, .link.synchronizing, .link.synchronized { stroke: var(--ok); }
-.link.synchronizing, .link.synchronized, .link.seeding { stroke-dasharray: 10 7; animation: flow 1s linear infinite; }
-.link.seeding { stroke: var(--warn); }
+.link.synchronizing, .link.synchronized, .link.seeding, .link.catching-up { stroke-dasharray: 10 7; animation: flow 1s linear infinite; }
+.link.seeding, .link.catching-up { stroke: var(--warn); }
+.link.catching-up { stroke-width: 4; animation-duration: .5s; }
 .link.suspended { stroke: var(--warn); stroke-dasharray: 3 6; }
 .link.down, .link.not-synchronizing { stroke: var(--bad); stroke-dasharray: 4 6; }
 .link.removed { stroke: var(--faint); stroke-dasharray: 2 8; opacity: .5; }
@@ -138,6 +142,32 @@ button, select { font: inherit; color: inherit; }
 .chip.skipped { opacity: .65; } .chip.pending { color: var(--muted); }
 .chip .dur { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
+/* Monitoring */
+.progress { display: grid; grid-template-columns: 170px minmax(0, 1fr) auto; gap: 6px 14px; align-items: center; margin-bottom: 14px; }
+.progress .pl { font-weight: 700; }
+.progress .pl small { display: block; font-weight: 500; color: var(--muted); font-size: 12px; }
+.pbar { position: relative; height: 22px; border-radius: 11px; background: var(--panel-2); overflow: hidden; }
+.pbar .pf { position: absolute; inset: 0 auto 0 0; background: var(--warn); border-radius: 11px; transition: width .6s ease; }
+.pbar.done .pf { background: var(--ok); } .pbar.failed .pf { background: var(--bad); }
+.pbar .pt { position: absolute; inset: 0; display: grid; place-items: center; font-weight: 750; font-size: 13px; font-variant-numeric: tabular-nums; }
+.progress .pe { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; text-align: right; }
+.progress .pe b { color: var(--text); font-size: 17px; }
+.charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.chart { background: var(--panel-2); border-radius: 10px; padding: 10px 12px 6px; min-width: 0; }
+.chart .ch { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.chart .cl { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.chart .cv { font-size: 22px; font-weight: 750; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chart .cv small { font-size: 12px; color: var(--muted); font-weight: 600; margin-left: 3px; }
+.chart svg { width: 100%; height: auto; display: block; }
+.chart .line { fill: none; stroke: var(--accent); stroke-width: 2; }
+.chart .area { fill: var(--accent); opacity: .12; }
+.chart .ax { font-size: 10px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+.chart .grid { stroke: var(--border); stroke-width: 1; }
+.chart .mk { stroke: var(--faint); stroke-dasharray: 3 3; }
+.chart .mkl { font-size: 9.5px; fill: var(--muted); }
+.chart .th { stroke-dasharray: 5 4; stroke-width: 1.5; }
+.chart .ce { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
 /* Log */
 #log { list-style: none; margin: 0; padding: 0; max-height: 360px; overflow: auto; font-size: 13.5px; }
 #log li { display: grid; grid-template-columns: 72px 18px minmax(0, 1fr); gap: 6px; padding: 4px 0; border-top: 1px solid var(--border); }
@@ -145,6 +175,7 @@ button, select { font: inherit; color: inherit; }
 #log .t { color: var(--muted); font-variant-numeric: tabular-nums; }
 #log .x { overflow-wrap: anywhere; }
 #log li.error .x, #log li.error .i { color: var(--bad); }
+#log li.warn .x, #log li.warn .i { color: var(--warn); }
 #log li.tech .x { color: var(--muted); }
 #log li.fresh { animation: fresh 2s ease-out; }
 
@@ -205,7 +236,7 @@ button, select { font: inherit; color: inherit; }
       <svg id="topo" role="img" aria-label="Topology"></svg>
       <div class="legend">
         <span><i style="border-color:var(--ok)"></i>replicating</span>
-        <span><i style="border-color:var(--warn);border-top-style:dashed"></i>seeding / suspended</span>
+        <span><i style="border-color:var(--warn);border-top-style:dashed"></i>seeding / catching up / suspended</span>
         <span><i style="border-color:var(--bad);border-top-style:dotted"></i>down</span>
         <span><i style="border-color:var(--accent);border-top-style:dashed"></i>application writes</span>
         <span>★ global primary</span>
@@ -215,6 +246,7 @@ button, select { font: inherit; color: inherit; }
       <section class="card"><h2>Key numbers</h2><div class="kpis" id="kpis"></div></section>
       <section class="card"><h2>Success criteria</h2><ul id="criteria"></ul></section>
     </aside>
+    <section class="card span-2" id="monitor-card" hidden><h2>Monitoring</h2><div id="progress"></div><div class="charts" id="charts"></div></section>
     <section class="card span-2"><h2>Progress</h2><div id="stages"></div></section>
     <section class="card span-2"><h2>Events</h2><ol id="log"></ol></section>
   </main>
@@ -281,7 +313,7 @@ button, select { font: inherit; color: inherit; }
   const hhmmss = (iso) => (iso ? iso.substr(11, 8) : '');
   // Seconds of "dashboard time" elapsed since the last fetch (replay runs at its speed).
   function drift() {
-    if (!state) return 0;
+    if (!state || state.meta.mode === 'report') return 0;
     const wall = (Date.now() - fetchedAt) / 1000;
     const r = state.meta.replay;
     if (!r) return wall;
@@ -292,6 +324,11 @@ button, select { font: inherit; color: inherit; }
   // ── Fetch loop ──
   async function refresh() {
     clearTimeout(timer);
+    if (window.__DASH_STATIC__) {   // static report: the state is embedded, no server
+      state = window.__DASH_STATIC__; fetchedAt = Date.now();
+      if (!view) setView(state.meta.view || 'executive'); else render(state);
+      return;
+    }
     try {
       const res = await fetch('/api/state', { cache: 'no-store' });
       if (!res.ok) throw new Error(res.status);
@@ -321,9 +358,11 @@ button, select { font: inherit; color: inherit; }
     if (m.mode === 'replay') {
       modeEl.className = 'badge replay';
       modeEl.textContent = 'REPLAY ×' + m.replay.speed + (m.replay.paused ? ' · paused' : m.replay.finished ? ' · end' : '');
+    } else if (m.mode === 'report') {
+      modeEl.className = 'badge report'; modeEl.textContent = 'REPORT · ' + (m.generatedUtc || '').substr(0, 16).replace('T', ' ') + ' UTC';
     } else { modeEl.className = 'badge live'; modeEl.textContent = 'LIVE'; }
     $('runinfo').textContent = m.runId ? 'run ' + m.runId + (tech() ? ' · ' + m.stack : '') : 'no run yet';
-    renderNarration(s); renderTopology(s); renderKpis(s); renderCriteria(s); renderStages(s); renderLog(s); renderReplay(s);
+    renderNarration(s); renderTopology(s); renderKpis(s); renderCriteria(s); renderMonitoring(s); renderStages(s); renderLog(s); renderReplay(s);
     tick();
   }
 
@@ -382,19 +421,19 @@ button, select { font: inherit; color: inherit; }
     // Regions
     s.regions.forEach((r, ci) => {
       const x = ci * (colW + gap);
-      svg('rect', { x, y: top - 8, width: colW, height: H - top + 2, rx: 14, class: 'rg-box' + (r.state === 'down' ? ' down' : '') }, layerRegions);
+      svg('rect', { x, y: top - 8, width: colW, height: H - top + 2, rx: 14, class: 'rg-box' + (r.state === 'down' ? ' down' : r.state === 'partitioned' ? ' partitioned' : '') }, layerRegions);
       // Region texts sit above the links (with a halo) so the application arrow never hides them.
-      const halo = ' halo' + (r.state === 'down' ? ' down' : '');
+      const halo = ' halo' + (r.state === 'down' || r.state === 'partitioned' ? ' down' : '');
       svg('text', { x: x + pad, y: top + 16, class: 'rg-title' + halo }, layerLabels, r.label);
-      const st = r.state === 'down' ? '■ REGION DOWN' : r.state === 'recovering' ? '▲ RECOVERING' : '● UP';
+      const st = r.state === 'down' ? '■ REGION DOWN' : r.state === 'partitioned' ? '✂ PARTITIONED' : r.state === 'recovering' ? '▲ RECOVERING' : '● UP';
       const t = svg('text', { x: x + colW - pad, y: top + 16, 'text-anchor': 'end', class: 'pill' + halo }, layerLabels, st);
-      t.style.fill = r.state === 'down' ? 'var(--bad)' : r.state === 'recovering' ? 'var(--warn)' : 'var(--ok)';
+      t.style.fill = r.state === 'down' || r.state === 'partitioned' ? 'var(--bad)' : r.state === 'recovering' ? 'var(--warn)' : 'var(--ok)';
       svg('text', { x: x + pad, y: top + 33, class: 'rg-role' + halo }, layerLabels, (r.role || '') + (T ? '  ·  ' + r.id : ''));
     });
 
     // Links
     const byId = Object.fromEntries(s.nodes.map((n) => [n.id, n]));
-    const markerFor = (st) => ({ healthy: 'ok', synchronizing: 'ok', synchronized: 'ok', seeding: 'warn', suspended: 'warn', down: 'bad', 'not-synchronizing': 'bad' }[st] || 'faint');
+    const markerFor = (st) => ({ healthy: 'ok', synchronizing: 'ok', synchronized: 'ok', seeding: 'warn', 'catching-up': 'warn', suspended: 'warn', down: 'bad', 'not-synchronizing': 'bad' }[st] || 'faint');
     function route(a, b) {
       if (a.col === b.col) {
         const up = a.y > b.y, x = a.x + nodeW / 2;
@@ -415,9 +454,14 @@ button, select { font: inherit; color: inherit; }
       const p = svg('path', { d: r.d, class: 'link ' + l.state, 'marker-end': `url(#arrow-${markerFor(l.state)})` }, layerLinks);
       svg('title', {}, p, `${l.label}: ${byId[l.from]?.label} → ${byId[l.to]?.label} (${l.state})`);
       const label = T ? `${l.label} · ${l.state}` : l.kind === 'dag' ? l.label.replace('->', '→') : '';
+      const color = `var(--${markerFor(l.state) === 'faint' ? 'muted' : markerFor(l.state)})`;
       if (label) {
         const t = svg('text', { x: r.mx, y: r.my - 6, 'text-anchor': 'middle', class: 'l-label' }, layerLabels, label);
-        t.style.fill = `var(--${markerFor(l.state) === 'faint' ? 'muted' : markerFor(l.state)})`;
+        t.style.fill = color;
+      }
+      if (l.note) {   // e.g. "812 MB behind · ETA 1:40"
+        const t = svg('text', { x: r.mx, y: label ? r.my + 10 : r.my - 8, 'text-anchor': 'middle', class: 'l-label' }, layerLabels, l.note);
+        t.style.fill = color;
       }
     }
 
@@ -438,7 +482,7 @@ button, select { font: inherit; color: inherit; }
     for (const n of s.nodes) {
       const p = pos[n.id]; if (!p) continue;
       const off = OFF.includes(n.power);
-      const cls = ['node', n.role === 'PRIMARY' ? 'primary' : '', n.global && n.role === 'PRIMARY' ? 'global' : '', off ? 'off' : '', n.fenced ? 'fenced' : ''].join(' ');
+      const cls = ['node', n.role === 'PRIMARY' ? 'primary' : '', n.global && n.role === 'PRIMARY' ? 'global' : '', off ? 'off' : '', n.fenced ? 'fenced' : '', n.partitioned ? 'partitioned' : ''].join(' ');
       const g = svg('g', { class: cls, transform: `translate(${p.x},${p.y})` }, layerNodes);
       svg('title', {}, g, `${n.name} (${n.vm})\n${n.ip}\nAG ${n.group}\npower ${n.power}${n.powerLive ? ' (live)' : ''}`);
       svg('rect', { width: nodeW, height: nodeH, rx: 10, class: 'node-box' }, g);
@@ -457,6 +501,7 @@ button, select { font: inherit; color: inherit; }
       const extra = [];
       if (off || n.power !== 'running') extra.push([n.power.toUpperCase(), off ? 'var(--bad)' : 'var(--warn)']);
       if (n.fenced) extra.push(['🔒 FENCED', 'var(--warn)']);
+      if (n.partitioned) extra.push(['✂ CUT OFF', 'var(--bad)']);
       for (const [txt, color] of extra) { const t = svg('text', { x: px, y: 52, class: 'pill' }, g, txt); t.style.fill = color; px += txt.length * 7.3 + 12; }
       if (T) svg('text', { x: 12, y: 76, class: 'n-tech' }, g, `${n.name} · ${n.ip}`);
     }
@@ -471,10 +516,11 @@ button, select { font: inherit; color: inherit; }
     }
     for (const m of s.metrics.filter((x) => T || x.exec)) {
       const has = m.value !== null && m.value !== undefined;
-      const val = has ? (typeof m.value === 'boolean' ? (m.value ? 'yes' : 'no') : m.value) : '—';
-      const tgt = m.target !== null && m.target !== undefined ? `<span class="tgt"> target ≤ ${esc(m.target)}${esc(m.unit ? ' ' + m.unit : '')}</span>` : '';
+      const val = !has ? '—' : typeof m.value === 'boolean' ? (m.value ? 'yes' : 'no')
+        : typeof m.value === 'number' ? (m.format === 'duration' ? fmtClock(m.value) : fmtNum(m.value, Math.abs(m.value) >= 100 ? 0 : 1)) : m.value;
+      const tgt = m.target !== null && m.target !== undefined ? `<span class="tgt"> target ${m.targetOp === 'ge' ? '≥' : '≤'} ${esc(m.target)}${esc(m.unit ? ' ' + m.unit : '')}</span>` : '';
       html += `<div class="kpi ${has ? m.status : 'pending'}" title="${esc(m.detail || m.explain || '')}"><div class="k">${esc(m.label)}</div>` +
-        `<div class="v">${esc(val)}${has && m.unit ? `<small>${esc(m.unit)}</small>` : ''}</div><div class="d">${tgt || esc(T ? m.detail || '' : m.explain || '')}</div></div>`;
+        `<div class="v">${esc(val)}${has && m.unit && m.format !== 'duration' ? `<small>${esc(m.unit)}</small>` : ''}</div><div class="d">${tgt || esc(T ? m.detail || '' : m.explain || '')}</div></div>`;
     }
     $('kpis').innerHTML = html;
   }
@@ -485,6 +531,75 @@ button, select { font: inherit; color: inherit; }
       `<li><span class="ico ${c.status === 'n/a' ? 'na' : c.status}">${ICON[c.status] || ''}</span><div>${esc(c.label)}` +
       `${c.status === 'n/a' ? ' <span class="crit-detail">(not applicable)</span>' : ''}` +
       `${tech() && c.detail ? `<div class="crit-detail">${esc(c.detail)}</div>` : ''}</div></li>`).join('');
+  }
+
+  function fmtNum(v, d) {
+    if (v == null || isNaN(v)) return '—';
+    const n = Number(v);
+    return Math.abs(n) >= 1000 ? n.toLocaleString('en-US', { maximumFractionDigits: 0 }) : n.toFixed(d ?? 1).replace(/\.0+$/, '');
+  }
+
+  function renderMonitoring(s) {
+    const T = tech();
+    const charts = (s.charts || []).filter((c) => (T || c.exec) && c.points.length);
+    const progress = s.progress || [];
+    $('monitor-card').hidden = !charts.length && !progress.length;
+    $('progress').innerHTML = progress.map((p) => {
+      const eta = p.state === 'done' ? '<b>done</b>'
+        : p.etaSeconds != null && p.etaSeconds >= 0 ? `ETA <b data-eta="${p.etaSeconds}">${fmtClock(p.etaSeconds)}</b>` : '<b>ETA unknown</b><br>not converging';
+      const extra = [p.remaining != null ? `${fmtNum(p.remaining)} ${esc(p.remainingUnit || '')} left` : '', p.rate != null ? `${fmtNum(p.rate)} ${esc(p.rateUnit || '')}` : '',
+        p.alt != null && p.state !== 'done' ? `${esc(p.altLabel || 'alternative')} ${fmtClock(p.alt)}` : ''].filter(Boolean).join(' · ');
+      return `<div class="progress"><div class="pl">${esc(p.label)}<small>${esc(p.explain || '')}</small></div>` +
+        `<div class="pbar ${p.state}"><div class="pf" style="width:${Math.min(100, Math.max(0, p.percent))}%"></div><div class="pt">${fmtNum(p.percent)}%</div></div>` +
+        `<div class="pe">${eta}${extra ? '<br>' + extra : ''}</div></div>`;
+    }).join('');
+    const box = $('charts');
+    box.textContent = '';
+    const W = 320, H = 120, L = 34, R = 6, TOP = 8, B = 18;
+    for (const c of charts) {
+      const div = document.createElement('div'); div.className = 'chart';
+      const unit = c.unit ? `<small>${esc(c.unit)}</small>` : '';
+      div.innerHTML = `<div class="ch"><span class="cl">${esc(c.label)}</span><span class="cv">${fmtNum(c.latest, c.decimals)}${unit}</span></div>`;
+      const pts = c.points.map(([t, v]) => [Date.parse(t), Number(v)]);
+      const t0 = pts[0][0], t1 = Math.max(pts[pts.length - 1][0], t0 + 1000);
+      let lo = Math.min(...pts.map((p) => p[1])), hi = Math.max(...pts.map((p) => p[1]));
+      if (c.min != null) lo = Math.min(lo, c.min);
+      for (const th of c.thresholds || []) { lo = Math.min(lo, th.value); hi = Math.max(hi, th.value); }
+      if (hi - lo < 1e-9) hi = lo + 1;
+      const x = (t) => L + ((t - t0) / (t1 - t0)) * (W - L - R);
+      const y = (v) => TOP + (1 - (v - lo) / (hi - lo)) * (H - TOP - B);
+      const g = svg('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': c.label });
+      for (const v of [lo, hi]) {
+        svg('line', { x1: L, x2: W - R, y1: y(v), y2: y(v), class: 'grid' }, g);
+        svg('text', { x: L - 4, y: y(v) + 3, 'text-anchor': 'end', class: 'ax' }, g, fmtNum(v, c.decimals));
+      }
+      // Phase markers; labels of close markers are stacked instead of overlapping.
+      const rows = [];
+      for (const mk of s.chartMarkers || []) {
+        const tm = Date.parse(mk.utc);
+        if (tm < t0 || tm > t1) continue;
+        const mx = x(tm), w = mk.label.length * 5 + 6;
+        let row = 0;
+        while (rows[row] != null && rows[row] > mx) row++;
+        rows[row] = mx + w;
+        svg('line', { x1: mx, x2: mx, y1: TOP, y2: H - B, class: 'mk' }, g);
+        svg('text', { x: mx + 2, y: TOP + 8 + row * 10, class: 'mkl' }, g, mk.label);
+      }
+      for (const th of c.thresholds || []) {
+        const ln = svg('line', { x1: L, x2: W - R, y1: y(th.value), y2: y(th.value), class: 'th' }, g);
+        ln.style.stroke = `var(--${th.tone || 'warn'})`;
+        const tl = svg('text', { x: W - R - 2, y: y(th.value) - 3, 'text-anchor': 'end', class: 'ax' }, g, th.label || '');
+        tl.style.fill = `var(--${th.tone || 'warn'})`;
+      }
+      const d = pts.map((p, i) => (i ? 'L' : 'M') + x(p[0]).toFixed(1) + ',' + y(p[1]).toFixed(1)).join(' ');
+      svg('path', { d: `${d} L${x(pts[pts.length - 1][0]).toFixed(1)},${H - B} L${x(t0).toFixed(1)},${H - B} Z`, class: 'area' }, g);
+      svg('path', { d, class: 'line' }, g);
+      svg('text', { x: L, y: H - 4, class: 'ax' }, g, new Date(t0).toISOString().substr(11, 5));
+      svg('text', { x: W - R, y: H - 4, 'text-anchor': 'end', class: 'ax' }, g, new Date(t1).toISOString().substr(11, 5));
+      div.appendChild(g);
+      if (c.explain) { const e = document.createElement('div'); e.className = 'ce'; e.textContent = c.explain; div.appendChild(e); }
+      box.appendChild(div);
+    }
   }
 
   function renderStages(s) {
@@ -506,7 +621,7 @@ button, select { font: inherit; color: inherit; }
     const newest = key !== lastLogKey && lastLogKey !== '';
     lastLogKey = key;
     $('log').innerHTML = items.length
-      ? items.map((e, i) => `<li class="${e.level === 'error' ? 'error' : ''} ${e.tech ? 'tech' : ''} ${newest && i === 0 ? 'fresh' : ''}">` +
+      ? items.map((e, i) => `<li class="${e.level === 'error' || e.level === 'warn' ? e.level : ''} ${e.tech ? 'tech' : ''} ${newest && i === 0 ? 'fresh' : ''}">` +
           `<span class="t">${hhmmss(e.utc)}</span><span class="i">${esc(e.icon || '·')}</span><span class="x">${esc(e.text || e.event)}</span></li>`).join('')
       : '<li class="empty">No events yet</li>';
   }
@@ -535,6 +650,7 @@ button, select { font: inherit; color: inherit; }
       if (el.dataset.running === 'true' && el.dataset.secs !== '') el.textContent = fmtClock(Number(el.dataset.secs) + d);
     });
     document.querySelectorAll('.dur[data-run]').forEach((el) => (el.textContent = fmtDur(Number(el.dataset.run) + d)));
+    document.querySelectorAll('[data-eta]').forEach((el) => (el.textContent = fmtClock(Math.max(0, Number(el.dataset.eta) - d))));
     if (state.meta.nowUtc) {
       const t = new Date(Date.parse(state.meta.nowUtc) + d * 1000).toISOString();
       $('now').textContent = t.substr(11, 8) + ' UTC';

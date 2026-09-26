@@ -1,4 +1,4 @@
--- UC-01 | any node | Distributed AG health as seen from THIS instance: member AGs (LISTENER_URL,
+-- shared | any node | Distributed AG health as seen from THIS instance: member AGs (LISTENER_URL,
 -- role, connection, health) and per-database synchronization. Every line starts with the distributed
 -- AG's name, so the output of several distributed AGs can be combined in one call.
 -- sqlcmd -v DagName="dagsqlvm-node-1-node-3" -i 14-dag-status.sql

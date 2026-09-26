@@ -47,7 +47,8 @@ uc-01/
 ├── README.md       this runbook
 ├── uc-01.ps1       drill + runbook automation (status, precheck, drill, failover, reinstate, failback, ...)
 ├── dashboard.json  phases, metrics and success criteria shown by ../../dashboard/dashboard.ps1
-├── sql/            every T-SQL step as a standalone sqlcmd script (runnable by hand)
+├── sql/            every UC-01 T-SQL step as a standalone sqlcmd script (runnable by hand);
+│                   the ones every use case shares are in ../common/sql/
 └── runs/           evidence written by uc-01.ps1 - one folder per drill run (git-ignored)
 ```
 
@@ -171,14 +172,14 @@ Runs in westus2 only (node-2, plus the surviving forwarders' nodes):
    - drops **every** stale Distributed AG definition (`DropDistributed=1`);
    - `AG OFFLINE`, then `DROP AVAILABILITY GROUP`, then drops the databases.
 5. Lifts the 5022 fence and keeps 1433 fenced.
-   [`22-add-replica.sql`](sql/22-add-replica.sql) on node-2 and
-   [`23-join-secondary.sql`](sql/23-join-secondary.sql) on node-1 rejoin node-1 as an
+   [`22-add-replica.sql`](../common/sql/22-add-replica.sql) on node-2 and
+   [`23-join-secondary.sql`](../common/sql/23-join-secondary.sql) on node-1 rejoin node-1 as an
    **ASYNCHRONOUS** secondary, and the script waits for automatic seeding.
 6. **Re-attaches every forwarder.** Runs [`13-dag-repoint.sql`](sql/13-dag-repoint.sql) on node-2
    and on each forwarder's primary (AG1's URL → node-2; idempotent for AG3, which failover already
    re-attached). Resumes data movement on all forwarder nodes
-   ([`33`](sql/33-demote-and-resume.sql)), then waits up to `-ForwarderResyncMinutes` for every
-   forwarder to be SYNCHRONIZING ([`14-dag-status.sql`](sql/14-dag-status.sql)).
+   ([`33`](../common/sql/33-demote-and-resume.sql)), then waits up to `-ForwarderResyncMinutes` for every
+   forwarder to be SYNCHRONIZING ([`14-dag-status.sql`](../common/sql/14-dag-status.sql)).
    - A forwarder that received transactions from node-1 that node-2 never got can't resume.
      With `-ReseedForwarder`, the script rebuilds that forwarder's Distributed AG
      (`sqlvm-linux-ag.ps1 -Action remove-dag` + `deploy-dag`), which re-seeds it from node-2. Without the
@@ -194,7 +195,7 @@ Follows Microsoft's "manual failover without data loss" for `CLUSTER_TYPE = NONE
 2. Waits for node-1 to be SYNCHRONIZED.
 3. [`31`](sql/31-offline.sql): AG OFFLINE on node-2.
 4. [`32`](sql/32-promote.sql): promote node-1.
-5. [`33`](sql/33-demote-and-resume.sql): `SET (ROLE = SECONDARY)` on node-2, and resume data movement.
+5. [`33`](../common/sql/33-demote-and-resume.sql): `SET (ROLE = SECONDARY)` on node-2, and resume data movement.
 6. [`34`](sql/34-restore-original-modes.sql): restores the original modes (node-1 SYNC primary,
    node-2 ASYNC, commit gating off).
 7. [`13`](sql/13-dag-repoint.sql) on node-1 and every forwarder's primary: AG1's `LISTENER_URL` →
@@ -342,19 +343,19 @@ sqlcmd -S localhost -U SA -C -v DagName="dagsqlvm-node-1-node-5" MemberAg="agsql
 sqlcmd -S localhost -U SA -C -v DbName="AGDemoDB" RunId="manual" Rows="10" -i 12-write-test.sql
 # node-5 (AG3 forwarder, still up), then node-5 and node-6
 sqlcmd -S localhost -U SA -C -v DagName="dagsqlvm-node-1-node-5" MemberAg="agsqlvm-node-1" ListenerUrl="tcp://10.20.1.4:5022" -i 13-dag-repoint.sql
-sqlcmd -S localhost -U SA -C -v AgName="agsqlvm-node-5" Demote="0" -i 33-demote-and-resume.sql
+sqlcmd -S localhost -U SA -C -v AgName="agsqlvm-node-5" Demote="0" -i ../common/sql/33-demote-and-resume.sql
 
 # eastus back - FIRST deny 1433 in, 5022 in and 5022 out on node-1's NSG, then start node-1/3/4
 # node-1
 sqlcmd -S localhost -U SA -C -v AgName="agsqlvm-node-1" DbName="AGDemoDB" RunId="manual" -i 20-old-primary-inspect.sql
 sqlcmd -S localhost -U SA -C -v AgName="agsqlvm-node-1" DropDistributed="1" BackupDir="/var/opt/mssql/backup" RunId="manual" SkipBackup="0" -i 21-old-primary-preserve-and-drop.sql
 # remove the 5022 fence rules, then on node-2:
-sqlcmd -S localhost -U SA -C -v AgName="agsqlvm-node-1" ReplicaName="sqlvm-257672-node-1" EndpointUrl="tcp://10.10.1.4:5022" -i 22-add-replica.sql
+sqlcmd -S localhost -U SA -C -v AgName="agsqlvm-node-1" ReplicaName="sqlvm-257672-node-1" EndpointUrl="tcp://10.10.1.4:5022" -i ../common/sql/22-add-replica.sql
 # node-1
-sqlcmd -S localhost -U SA -C -v AgName="agsqlvm-node-1" -i 23-join-secondary.sql
+sqlcmd -S localhost -U SA -C -v AgName="agsqlvm-node-1" -i ../common/sql/23-join-secondary.sql
 # node-3 (forwarder), then node-3 and node-4
 sqlcmd -S localhost -U SA -C -v DagName="dagsqlvm-node-1-node-3" MemberAg="agsqlvm-node-1" ListenerUrl="tcp://10.20.1.4:5022" -i 13-dag-repoint.sql
-sqlcmd -S localhost -U SA -C -v AgName="agsqlvm-node-3" Demote="0" -i 33-demote-and-resume.sql
+sqlcmd -S localhost -U SA -C -v AgName="agsqlvm-node-3" Demote="0" -i ../common/sql/33-demote-and-resume.sql
 # remove the 1433 fence rule
 ```
 

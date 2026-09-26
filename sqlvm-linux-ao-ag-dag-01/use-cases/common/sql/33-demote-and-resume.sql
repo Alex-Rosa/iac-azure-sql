@@ -1,4 +1,4 @@
--- UC-01 | run on the OLD primary (node-2) after 32-promote.sql, then on the NEW primary (node-1) |
+-- shared | run on the OLD primary (node-2) after 32-promote.sql, then on the NEW primary (node-1) |
 -- Set the old primary's role to SECONDARY (only when it isn't already) and resume data movement for
 -- every suspended local AG database.
 -- sqlcmd -v AgName="agsqlvm-node-1" Demote="1" -i 33-demote-and-resume.sql

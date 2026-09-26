@@ -1,5 +1,6 @@
--- UC-01 | CURRENT primary (node-2) | Re-add the recovered node as an ASYNCHRONOUS secondary (it is now
--- the cross-region replica). Automatic seeding re-creates its databases from this primary.
+-- shared | CURRENT primary | Re-add a node as an ASYNCHRONOUS secondary (UC-01: the old primary after a
+-- forced failover; UC-02: the DR replica after the primary was protected). Automatic seeding
+-- re-creates its databases from this primary.
 -- sqlcmd -v AgName="agsqlvm-node-1" ReplicaName="sqlvm-257672-node-1" EndpointUrl="tcp://10.10.1.4:5022" -i 22-add-replica.sql
 SET NOCOUNT ON;
 IF NOT EXISTS (

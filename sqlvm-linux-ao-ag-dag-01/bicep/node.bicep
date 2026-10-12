@@ -37,10 +37,10 @@ packages:
   - unixODBC
 runcmd:
   - |
-    # The data disk is LUN 0. Its device name depends on the VM generation (/dev/sdc on SCSI sizes,
+    # The data disk is LUN 10 (dataDisks below). Its device name depends on the VM generation (/dev/sdc on SCSI sizes,
     # /dev/nvme0n2 on NVMe sizes such as v6/v7), so look it up by LUN - never assume /dev/sdb.
     DEV=""
-    for p in /dev/disk/azure/data/by-lun/0 /dev/disk/azure/scsi1/lun0; do
+    for p in /dev/disk/azure/data/by-lun/10 /dev/disk/azure/scsi1/lun10; do
       if [ -e "$p" ]; then DEV=$(readlink -f "$p"); break; fi
     done
     if [ -n "$DEV" ] && ! mountpoint -q /sqldata 2>/dev/null; then

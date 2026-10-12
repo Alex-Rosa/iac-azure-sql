@@ -287,8 +287,8 @@ before this fix, it isn't used:
   `/var` volume**. Every database's data *and* log files compete there with the OS. A log that
   can't be truncated (a replica down, see UC-02) fills it within minutes under load.
 
-**New deployments.** cloud-init now finds the data disk by LUN (`/dev/disk/azure/data/by-lun/0` or
-`/dev/disk/azure/scsi1/lun0`), whatever its device name. `install-sqlserver.sh` then bind-mounts
+**New deployments.** cloud-init now finds the data disk by LUN (`/dev/disk/azure/data/by-lun/10` or
+`/dev/disk/azure/scsi1/lun10`; the data disk is attached at LUN 10 in `node.bicep`), whatever its device name. `install-sqlserver.sh` then bind-mounts
 `/sqldata/mssql-data` on `/var/opt/mssql/data` before installing SQL Server.
 
 **Existing stacks.** Run, once per stack (AG1's and each forwarder's):

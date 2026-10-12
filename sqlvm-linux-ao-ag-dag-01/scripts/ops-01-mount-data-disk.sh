@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Mounts the stack's data disk (Bicep's sqlDataDiskSizeGB disk, LUN 0) on /sqldata. Idempotent.
+# Mounts the stack's data disk (Bicep's sqlDataDiskSizeGB disk, attached at LUN 10) on /sqldata. Idempotent.
 # Azure names the disk differently by VM generation (/dev/sdc on SCSI sizes, /dev/nvme0n2 on NVMe
 # sizes such as the v6/v7 families), so it is found by LUN - or, without the Azure udev links, as the
 # largest whole disk that holds nothing (no partition mounted, not an LVM member like the OS disk).
@@ -13,7 +13,7 @@ if mountpoint -q /sqldata; then
 fi
 
 DEV=""
-for p in /dev/disk/azure/data/by-lun/0 /dev/disk/azure/scsi1/lun0; do
+for p in /dev/disk/azure/data/by-lun/10 /dev/disk/azure/scsi1/lun10; do
   if [ -e "$p" ]; then DEV=$(readlink -f "$p"); break; fi
 done
 if [ -z "$DEV" ]; then

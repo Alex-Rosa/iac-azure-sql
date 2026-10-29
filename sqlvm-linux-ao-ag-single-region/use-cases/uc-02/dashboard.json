@@ -1,0 +1,78 @@
+{
+  "title": "UC-02 · Zone failure of the primary",
+  "subtitle": "Force the AG over to the synchronous secondary in the other zone, then bring the failed node back",
+  "compareOrigin": "failure",
+  "compareOriginLabel": "failure",
+  "clocks": [
+    { "id": "outage",         "label": "Outage clock",          "explain": "From the failure of {primaryDomain} to the application's first commit on {secondary}" },
+    { "id": "fbinterruption", "label": "Failback interruption", "explain": "From the AG going offline on {secondary} to the application's first commit back on {primary}" }
+  ],
+  "stages": [
+    {
+      "id": "drill", "label": "Forced failover drill",
+      "phases": [
+        { "id": "precheck",  "label": "Pre-check",         "explain": "Checking both nodes are up, {secondary} is SYNCHRONOUS and every database SYNCHRONIZED" },
+        { "id": "workload",  "label": "Start application", "explain": "An application writer commits a ledger row every 0.2 s on {primary} ({primaryDomain})" },
+        { "id": "warmup",    "label": "Warm-up",           "explain": "Normal operation: every commit is hardened on {secondary} ({secondaryDomain}) before it is acknowledged" },
+        { "id": "failure",   "label": "Zone failure",      "explain": "{primary} is powered off hard - no shutdown, like losing {primaryDomain}" },
+        { "id": "detect",    "label": "Detection",         "explain": "{secondary} notices it has lost the primary; the application's commits fail" },
+        { "id": "failover",  "label": "Forced failover",   "explain": "Promoting {secondary}: it already holds every acknowledged commit (synchronous)" },
+        { "id": "reconnect", "label": "App reconnects",    "explain": "The application retries and commits on {secondary} by itself - this stops the outage clock" },
+        { "id": "verify",    "label": "Verify",            "explain": "Every commit acknowledged before the failure is in the ledger of {secondary}" }
+      ]
+    },
+    {
+      "id": "reinstate", "label": "Reinstate {primaryDomain}",
+      "phases": [
+        { "id": "fence",    "label": "Fence old primary", "explain": "Blocking {primary} on the network first: it may boot believing it is still primary" },
+        { "id": "restart",  "label": "Node back",         "explain": "Starting {primary}" },
+        { "id": "inspect",  "label": "Inspect",           "explain": "Rows only {primary} has: commits whose acknowledgement never reached the application" },
+        { "id": "demote",   "label": "Demote",            "explain": "{primary} becomes a secondary of {secondary}" },
+        { "id": "resync",   "label": "Resynchronize",     "explain": "{primary} catches up from {secondary} until SYNCHRONIZED" },
+        { "id": "unfence",  "label": "Lift fence",        "explain": "{primary} is a healthy secondary again - clients may connect" }
+      ]
+    },
+    {
+      "id": "failback", "label": "Failback (planned)",
+      "phases": [
+        { "id": "fbsync",      "label": "Synchronize",    "explain": "Waiting until every database is SYNCHRONIZED on {primary}" },
+        { "id": "fboffline",   "label": "AG offline",     "explain": "Taking the AG offline on {secondary}" },
+        { "id": "fbpromote",   "label": "Promote",        "explain": "{primary} becomes primary again" },
+        { "id": "fbdemote",    "label": "Demote",         "explain": "{secondary} goes back to secondary" },
+        { "id": "fbreconnect", "label": "App reconnects", "explain": "The application commits on {primary} again" },
+        { "id": "fbverify",    "label": "Verify",         "explain": "Nothing lost, {secondary} SYNCHRONIZED" }
+      ]
+    }
+  ],
+  "metrics": [
+    { "id": "rto",             "label": "RTO",                     "unit": "s",    "exec": true, "explain": "Failure -> first application commit on {secondary}" },
+    { "id": "rpoTx",           "label": "Lost transactions (RPO)", "unit": "",     "exec": true, "target": 0, "explain": "Commits acknowledged before the failure that are missing on {secondary}" },
+    { "id": "txPerSec",        "sample": "txPerSec", "label": "Throughput", "unit": "tx/s", "exec": true, "explain": "Commits the application gets acknowledged per second, now" },
+    { "id": "divergentRows",   "label": "Rows only on the old primary", "unit": "", "exec": true, "explain": "Committed on {primary} but never acknowledged (in flight at the failure) - discarded" },
+    { "id": "detectSeconds",   "label": "Detection",               "unit": "s",    "exec": false },
+    { "id": "failoverSeconds", "label": "Forced failover took",    "unit": "s",    "exec": false },
+    { "id": "appCommits",      "label": "Application commits",     "unit": "",     "exec": false },
+    { "id": "failedAttempts",  "label": "Failed attempts",         "unit": "",     "exec": false },
+    { "id": "sendQueueKB",     "sample": "sendQueueKB", "label": "Send queue", "unit": "KB", "exec": false },
+    { "id": "redoQueueKB",     "sample": "redoQueueKB", "label": "Redo queue", "unit": "KB", "exec": false },
+    { "id": "failbackRto",     "label": "Failback interruption",   "unit": "s",    "exec": false },
+    { "id": "failbackRpoTx",   "label": "Failback lost transactions", "unit": "", "exec": false, "target": 0 },
+    { "id": "failbackSwapSeconds", "label": "Failback role swap took", "unit": "s", "exec": false }
+  ],
+  "charts": [
+    { "id": "throughput", "key": "txPerSec",     "label": "Application throughput", "unit": "tx/s", "exec": true,  "min": 0, "decimals": 1, "explain": "Drops to 0 at the failure, resumes when {secondary} is promoted" },
+    { "id": "failures",   "key": "failPerSec",   "label": "Failed attempts",        "unit": "/s",   "exec": true,  "min": 0, "decimals": 1, "explain": "Errors the application retries while there is no primary" },
+    { "id": "slowcommit", "key": "slowCommitMs", "label": "Slowest commit",         "unit": "ms",   "exec": false, "min": 0, "decimals": 0, "explain": "Synchronous commit: each commit waits for the secondary" },
+    { "id": "sendq",      "key": "sendQueueKB",  "label": "Send queue (primary)",   "unit": "KB",   "exec": false, "min": 0, "decimals": 0 },
+    { "id": "redoq",      "key": "redoQueueKB",  "label": "Redo queue (secondary)", "unit": "KB",   "exec": false, "min": 0, "decimals": 0, "explain": "Grows while {primary} catches up after the reinstate" }
+  ],
+  "chartMarkers": ["warmup", "failure", "failover", "reconnect", "resync", "fboffline"],
+  "criteria": [
+    { "id": "verify",    "label": "{secondary} primary, databases online, application writing to it",  "metric": "verifyPass",        "op": "eq", "value": true },
+    { "id": "rpo",       "label": "No acknowledged transaction lost (synchronous commit)",            "metric": "rpoTx",             "op": "eq", "value": 0 },
+    { "id": "rto",       "label": "RTO measured from the application's side",                         "metric": "rto",               "op": "exists" },
+    { "id": "reconnect", "label": "The application reconnected to {secondary} by itself",             "metric": "appReconnected",    "op": "eq", "value": true },
+    { "id": "fence",     "label": "Old primary fenced before power-on (no split-brain)",              "metric": "fencedBeforeStart", "op": "eq", "value": true },
+    { "id": "resync",    "label": "{primary} SYNCHRONIZED as the new secondary",                      "metric": "resynced",          "op": "eq", "value": true }
+  ]
+}

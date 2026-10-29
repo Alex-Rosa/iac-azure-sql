@@ -1,0 +1,8 @@
+{
+  "from": "sqlvm-ag01-node-1",
+  "to": "sqlvm-ag01-node-2",
+  "offlineUtc": "2026-10-13T01:38:29.402Z",
+  "promotedUtc": "2026-10-13T01:38:29.548Z",
+  "doneUtc": "2026-10-13T01:38:29.874Z",
+  "writer": null
+}

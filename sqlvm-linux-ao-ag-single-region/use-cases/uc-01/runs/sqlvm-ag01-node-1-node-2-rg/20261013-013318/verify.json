@@ -1,0 +1,16 @@
+{
+  "utc": "2026-10-13T01:55:51.805Z",
+  "newPrimary": "sqlvm-ag01-node-2",
+  "pass": true,
+  "synchronized": false,
+  "acknowledgedUpTo": 4502,
+  "ledger": "Changed database context to 'AGDemoDB'.\nLEDGER=4749|4749|2026-10-13T01:55:25.918\nLEDGER_UPTO=4502\nLEDGER_HOST=0|0\nUC_EXIT=0",
+  "lostTransactions": 0,
+  "status": "SQL_UP=1\nHOST=sqlvm-ag01-node-2\nAG_EXISTS=1\nLOCAL_ROLE=PRIMARY\nREQUIRED_SYNC=0\nREPLICA=sqlvm-ag01-node-1|SYNCHRONOUS_COMMIT|SECONDARY|CONNECTED|NOT_HEALTHY\nREPLICA=sqlvm-ag01-node-2|SYNCHRONOUS_COMMIT|PRIMARY|CONNECTED|HEALTHY\nDB=AGDemoDB|ONLINE|SYNCHRONIZED|suspended=0\nDB=WideWorldImporters|ONLINE|SYNCHRONIZED|suspended=0\nDB_REPLICA=AGDemoDB|sqlvm-ag01-node-1|NOT SYNCHRONIZING|suspended=1\nDB_REPLICA=WideWorldImporters|sqlvm-ag01-node-1|NOT SYNCHRONIZING|suspended=1\nUC_EXIT=0",
+  "writer": {
+    "ok": 4502,
+    "failed": 1,
+    "lastSeq": 4502,
+    "lastIp": "10.10.1.5"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "runId": "20261013-021942",
+  "utc": "2026-10-13T02:21:22.968Z",
+  "ag": "agsqlvm-node-1",
+  "region": "westus2",
+  "primary": "sqlvm-ag01-node-1",
+  "secondary": "sqlvm-ag01-node-2",
+  "failedDomain": "",
+  "nodes": [
+    {
+      "name": "sqlvm-ag01-node-1",
+      "domain": "Zone 1",
+      "zone": "1",
+      "ip": "10.10.1.4"
+    },
+    {
+      "name": "sqlvm-ag01-node-2",
+      "domain": "Zone 2",
+      "zone": "2",
+      "ip": "10.10.1.5"
+    }
+  ],
+  "status": [
+    {
+      "node": "sqlvm-ag01-node-1",
+      "output": "SQL_UP=1\nHOST=sqlvm-ag01-node-1\nAG_EXISTS=1\nLOCAL_ROLE=PRIMARY\nREQUIRED_SYNC=0\nREPLICA=sqlvm-ag01-node-1|SYNCHRONOUS_COMMIT|PRIMARY|CONNECTED|HEALTHY\nREPLICA=sqlvm-ag01-node-2|SYNCHRONOUS_COMMIT|SECONDARY|CONNECTED|HEALTHY\nDB=AGDemoDB|ONLINE|SYNCHRONIZED|suspended=0\nDB=WideWorldImporters|ONLINE|SYNCHRONIZED|suspended=0\nDB_REPLICA=AGDemoDB|sqlvm-ag01-node-2|SYNCHRONIZED|suspended=0\nDB_REPLICA=WideWorldImporters|sqlvm-ag01-node-2|SYNCHRONIZED|suspended=0\nUC_EXIT=0"
+    },
+    {
+      "node": "sqlvm-ag01-node-2",
+      "output": "SQL_UP=1\nHOST=sqlvm-ag01-node-2\nAG_EXISTS=1\nLOCAL_ROLE=SECONDARY\nREQUIRED_SYNC=0\nREPLICA=sqlvm-ag01-node-1|SYNCHRONOUS_COMMIT|?|?|?\nREPLICA=sqlvm-ag01-node-2|SYNCHRONOUS_COMMIT|SECONDARY|CONNECTED|HEALTHY\nDB=AGDemoDB|ONLINE|SYNCHRONIZED|suspended=0\nDB=WideWorldImporters|ONLINE|SYNCHRONIZED|suspended=0\nUC_EXIT=0"
+    }
+  ]
+}

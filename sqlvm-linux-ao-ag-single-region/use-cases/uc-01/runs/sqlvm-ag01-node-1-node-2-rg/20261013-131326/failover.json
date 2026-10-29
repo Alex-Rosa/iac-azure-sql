@@ -1,0 +1,23 @@
+{
+  "from": "sqlvm-ag01-node-1",
+  "to": "sqlvm-ag01-node-2",
+  "offlineUtc": "2026-10-13T13:18:36.230Z",
+  "promotedUtc": "2026-10-13T13:18:36.386Z",
+  "doneUtc": "2026-10-13T13:18:36.622Z",
+  "writer": {
+    "BeforeMs": 1791897516229,
+    "BeforeSeq": 739,
+    "BeforeIp": "10.10.1.4",
+    "AfterMs": 1791897517154,
+    "AfterSeq": 740,
+    "AfterIp": "10.10.1.5",
+    "GapMs": 1544,
+    "GapFromMs": 1791897519250,
+    "GapToMs": 1791897520794,
+    "LastSeq": 965,
+    "LastIp": "10.10.1.5",
+    "Ok": 965,
+    "Failed": 1,
+    "FailedAfter": 1
+  }
+}

@@ -1,0 +1,677 @@
+{"utc":"2026-10-13T02:20:17.803Z","event":"topology","detail":"2 node(s), 1 link(s)","kind":"topology","params":{"region":"westus2","secondaryDomain":"Zone 2","ag":"agsqlvm-node-1","primaryDomain":"Zone 1","failedDomain":"","primary":"node-1","secondary":"node-2"},"nodes":[{"region":"zone-1","global":true,"id":"sqlvm-ag01-node-1","vm":"sqlvm-ag01-node-1-vm","label":"node-1","group":"agsqlvm-node-1","stack":"ag01","role":"PRIMARY","rg":"sqlvm-ag01-node-1-node-2-rg","ip":"10.10.1.4","name":"sqlvm-ag01-node-1"},{"region":"zone-2","global":false,"id":"sqlvm-ag01-node-2","vm":"sqlvm-ag01-node-2-vm","label":"node-2","group":"agsqlvm-node-1","stack":"ag01","role":"SECONDARY","rg":"sqlvm-ag01-node-1-node-2-rg","ip":"10.10.1.5","name":"sqlvm-ag01-node-2"}],"groups":[{"id":"agsqlvm-node-1","label":"AG","kind":"global"}],"regions":[{"id":"zone-1","label":"Zone 1","sub":"westus2","kind":"zone"},{"id":"zone-2","label":"Zone 2","sub":"westus2","kind":"zone"}],"useCase":"uc-01","links":[{"label":"AG (sync)","to":"sqlvm-ag01-node-2","from":"sqlvm-ag01-node-1","kind":"ag","state":"healthy","id":"ag-agsqlvm-node-1"}]}
+{"utc":"2026-10-13T02:20:17.811Z","event":"action-started","detail":"drill started","kind":"action","status":"started","action":"drill"}
+{"utc":"2026-10-13T02:20:17.812Z","event":"phase-running","detail":"precheck running","kind":"phase","status":"running","phase":"precheck"}
+{"utc":"2026-10-13T02:20:50.612Z","event":"node","detail":"sqlvm-ag01-node-1 running PRIMARY","kind":"node","power":"running","node":"sqlvm-ag01-node-1","global":true,"role":"PRIMARY"}
+{"utc":"2026-10-13T02:20:50.614Z","event":"node","detail":"sqlvm-ag01-node-2 running SECONDARY","kind":"node","power":"running","node":"sqlvm-ag01-node-2","global":false,"role":"SECONDARY"}
+{"utc":"2026-10-13T02:20:50.619Z","event":"precheck-passed","detail":"","kind":"log"}
+{"utc":"2026-10-13T02:20:50.631Z","event":"link","detail":"ag-agsqlvm-node-1 synchronized","kind":"link","state":"synchronized","link":"ag-agsqlvm-node-1"}
+{"utc":"2026-10-13T02:21:22.974Z","event":"phase-done","detail":"sqlvm-ag01-node-1 PRIMARY (Zone 1), sqlvm-ag01-node-2 SYNCHRONIZED (Zone 2) - run 20261013-021942","kind":"phase","status":"done","phase":"precheck"}
+{"utc":"2026-10-13T02:21:22.981Z","event":"phase-running","detail":"workload running","kind":"phase","status":"running","phase":"workload"}
+{"utc":"2026-10-13T02:21:54.774Z","event":"workload-started","detail":"22 commit(s) in the first 6 s, ledger run 20261013-021942","kind":"log"}
+{"utc":"2026-10-13T02:21:54.775Z","event":"phase-done","detail":"~5 commits/s from sqlvm-ag01-node-2 to sqlvm-ag01-node-1 (both private IPs known, switches on error)","kind":"phase","status":"done","phase":"workload"}
+{"utc":"2026-10-13T02:21:54.777Z","event":"phase-running","detail":"60 s of commits, sampled for the charts","kind":"phase","status":"running","phase":"warmup"}
+{"utc":"2026-10-13T02:21:26.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":72.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:27.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":81.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:28.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":72.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:29.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":70.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:30.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":80.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:31.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":71.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:32.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":79.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:33.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":72.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:34.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":75.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:35.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":79.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:36.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":74.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:37.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":73.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:38.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":72.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:39.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":75.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:40.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":75.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:41.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":74.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:42.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":68.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:43.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":80.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:44.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":68.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:45.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":72.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:46.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":78.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:47.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":70.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:48.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":69.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:49.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":66.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:50.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":67.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:51.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":74.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:52.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":66.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:53.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":72.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:54.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":76.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:55.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":68.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:56.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":73.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:57.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":71.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:58.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":82.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:21:59.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":66.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:27.127Z","event":"sample","detail":"queues","kind":"sample","data":{"sendQueueKB":60.0,"redoQueueKB":12.0}}
+{"utc":"2026-10-13T02:22:27.128Z","event":"link","detail":"ag-agsqlvm-node-1 synchronized","kind":"link","link":"ag-agsqlvm-node-1","quiet":true,"note":"send 60 KB · redo 12 KB","state":"synchronized"}
+{"utc":"2026-10-13T02:22:00.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":68.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:01.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":81.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:02.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":73.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:03.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":71.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:04.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":69.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:05.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":77.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:06.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":70.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:07.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":75.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:08.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":71.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:09.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":72.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:10.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":71.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:11.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":78.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:12.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":69.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:13.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":81.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:14.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":91.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:15.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":80.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:16.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":70.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:17.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":66.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:18.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":70.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:19.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":67.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:20.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":81.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:21.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":93.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:22.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":75.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:23.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":71.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:24.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":73.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:25.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":73.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:26.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":73.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:27.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":70.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:28.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":70.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:29.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":73.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:30.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":72.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:31.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":74.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:32.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":76.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:33.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":74.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:34.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":80.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:35.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":68.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:36.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":83.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:37.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":77.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:38.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":69.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:39.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":81.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:08.899Z","event":"sample","detail":"queues","kind":"sample","data":{"sendQueueKB":60.0,"redoQueueKB":12.0}}
+{"utc":"2026-10-13T02:23:08.899Z","event":"link","detail":"ag-agsqlvm-node-1 synchronized","kind":"link","link":"ag-agsqlvm-node-1","quiet":true,"note":"send 60 KB · redo 12 KB","state":"synchronized"}
+{"utc":"2026-10-13T02:23:08.900Z","event":"phase-done","detail":"warmup done","kind":"phase","status":"done","phase":"warmup"}
+{"utc":"2026-10-13T02:23:42.360Z","event":"phase-running","detail":"both replicas synchronous, commits wait for sqlvm-ag01-node-2","kind":"phase","status":"running","phase":"sync"}
+{"utc":"2026-10-13T02:24:46.390Z","event":"link","detail":"ag-agsqlvm-node-1 synchronized","kind":"link","state":"synchronized","link":"ag-agsqlvm-node-1"}
+{"utc":"2026-10-13T02:24:46.391Z","event":"phase-done","detail":"sqlvm-ag01-node-2 SYNCHRONIZED","kind":"phase","status":"done","phase":"sync"}
+{"utc":"2026-10-13T02:24:46.392Z","event":"phase-running","detail":"AG offline on sqlvm-ag01-node-1: writes stop","kind":"phase","status":"running","phase":"offline"}
+{"utc":"2026-10-13T02:24:52.845Z","event":"phase-done","detail":"AG offline on sqlvm-ag01-node-1","kind":"phase","status":"done","phase":"offline"}
+{"utc":"2026-10-13T02:24:52.845Z","event":"phase-running","detail":"sqlvm-ag01-node-2: FORCE_FAILOVER_ALLOW_DATA_LOSS (no loss: SYNCHRONIZED, old primary offline)","kind":"phase","status":"running","phase":"promote"}
+{"utc":"2026-10-13T02:24:53.010Z","event":"phase-done","detail":"sqlvm-ag01-node-2 is PRIMARY","kind":"phase","status":"done","phase":"promote"}
+{"utc":"2026-10-13T02:25:18.708Z","event":"node","detail":"sqlvm-ag01-node-2 PRIMARY","kind":"node","node":"sqlvm-ag01-node-2","global":true,"role":"PRIMARY"}
+{"utc":"2026-10-13T02:25:18.708Z","event":"node","detail":"sqlvm-ag01-node-1 SECONDARY","kind":"node","node":"sqlvm-ag01-node-1","global":false,"role":"SECONDARY"}
+{"utc":"2026-10-13T02:25:18.709Z","event":"link","detail":"ag-agsqlvm-node-1 synchronizing","kind":"link","link":"ag-agsqlvm-node-1","to":"sqlvm-ag01-node-1","from":"sqlvm-ag01-node-2","state":"synchronizing"}
+{"utc":"2026-10-13T02:24:53.010Z","event":"phase-running","detail":"sqlvm-ag01-node-1 -> SECONDARY, data movement resumed","kind":"phase","status":"running","phase":"demote"}
+{"utc":"2026-10-13T02:24:53.733Z","event":"phase-done","detail":"sqlvm-ag01-node-1 is SECONDARY; commit gate back to 0","kind":"phase","status":"done","phase":"demote"}
+{"utc":"2026-10-13T02:25:18.717Z","event":"clock-start","detail":"AG offline on sqlvm-ag01-node-1: writes stop","kind":"clock","at":"2026-10-13T02:24:52.845Z","status":"start","clock":"interruption"}
+{"utc":"2026-10-13T02:25:18.720Z","event":"metric","detail":"offline -> promoted 0.2 s -> demoted + resumed 0.7 s","kind":"metric","unit":"s","metric":"swapSeconds","value":0.9}
+{"utc":"2026-10-13T02:24:53.733Z","event":"phase-running","detail":"the application retries until sqlvm-ag01-node-2 accepts its commits","kind":"phase","status":"running","phase":"reconnect"}
+{"utc":"2026-10-13T02:22:40.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":77.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:42.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":71.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:44.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":69.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:46.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":81.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:48.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":72.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:50.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":71.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:52.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":80.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:54.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":83.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:56.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":74.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:22:58.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":70.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:00.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":76.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:02.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":72.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:04.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":82.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:06.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":83.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:08.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":85.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:10.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":70.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:12.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":70.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:14.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":80.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:16.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":117.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:18.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":80.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:20.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":76.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:22.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":75.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:24.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":84.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:26.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":81.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:28.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":75.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:30.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":77.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:32.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":82.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:34.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":71.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:36.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":77.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:38.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":71.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:40.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":88.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:42.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":79.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:44.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":82.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:46.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":69.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:48.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":99.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:50.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":87.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:52.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":77.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:54.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":75.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:56.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":92.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:23:58.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":79.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:24:00.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":94.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:24:02.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":72.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:24:04.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":73.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:24:06.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":78.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:24:08.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":80.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:24:10.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":71.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:24:12.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":76.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:24:14.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":73.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:24:16.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":84.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:24:18.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":108.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:24:20.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":79.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:24:22.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":84.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:24:24.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":76.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:24:26.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":99.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:24:28.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":79.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:24:30.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":76.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:24:32.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":72.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:24:34.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":72.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:24:36.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":69.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:24:38.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":71.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:24:40.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":70.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:24:42.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":73.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:24:44.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":68.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:24:46.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":74.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:24:48.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":74.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:24:50.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":72.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:24:52.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":1.5,"slowCommitMs":74.0,"failPerSec":1.0}}
+{"utc":"2026-10-13T02:24:54.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":2.5,"slowCommitMs":274.0,"failPerSec":0.5}}
+{"utc":"2026-10-13T02:24:56.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":2.5,"slowCommitMs":1078.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:24:58.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":69.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:00.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":2.0,"slowCommitMs":582.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:02.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":613.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:04.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":69.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:06.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":60.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:08.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:10.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":62.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:12.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":61.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:14.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":68.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:16.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":72.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:18.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":59.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:20.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:22.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:24.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":2.0,"slowCommitMs":68.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:50.496Z","event":"sample","detail":"queues","kind":"sample","data":{"sendQueueKB":0.0,"redoQueueKB":16.0}}
+{"utc":"2026-10-13T02:25:50.496Z","event":"link","detail":"ag-agsqlvm-node-1 synchronized","kind":"link","link":"ag-agsqlvm-node-1","quiet":true,"note":"send 0 KB · redo 16 KB","state":"synchronized"}
+{"utc":"2026-10-13T02:26:22.732Z","event":"clock-stop","detail":"first commit on sqlvm-ag01-node-2","kind":"clock","at":"2026-10-13T02:24:54.410Z","status":"stop","clock":"interruption"}
+{"utc":"2026-10-13T02:26:22.734Z","event":"metric","detail":"application view: last commit on sqlvm-ag01-node-1 at 02:24:52.640, first on sqlvm-ag01-node-2 at 02:24:54.410 UTC; 3 failed attempt(s) in between","kind":"metric","unit":"s","metric":"rto","value":1.8}
+{"utc":"2026-10-13T02:26:22.735Z","event":"metric","detail":"first commit on sqlvm-ag01-node-2 (seq 764) without any change to the application","kind":"metric","unit":"","metric":"appReconnected","value":true}
+{"utc":"2026-10-13T02:24:54.410Z","event":"phase-done","detail":"first commit on sqlvm-ag01-node-2 1.8 s after the last one on sqlvm-ag01-node-1","kind":"phase","status":"done","phase":"reconnect"}
+{"utc":"2026-10-13T02:26:22.738Z","event":"phase-running","detail":"60 s of commits on sqlvm-ag01-node-2","kind":"phase","status":"running","phase":"observe"}
+{"utc":"2026-10-13T02:25:25.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":61.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:26.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:27.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":60.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:28.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":61.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:29.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:30.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":67.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:31.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":72.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:32.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":72.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:33.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":69.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:34.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":60.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:35.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:36.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":60.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:37.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":61.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:38.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":60.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:39.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":69.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:40.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":67.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:41.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":58.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:42.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":65.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:43.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":61.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:44.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:45.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":81.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:46.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":67.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:47.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":59.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:48.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:49.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":55.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:50.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:51.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":55.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:52.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":58.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:53.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":55.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:54.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":71.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:55.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":70.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:56.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":58.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:57.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:58.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:25:59.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":59.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:00.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":59.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:01.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:02.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:03.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":66.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:04.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:05.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":60.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:06.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:07.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:08.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":61.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:09.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":88.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:10.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:11.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:12.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":55.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:13.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":55.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:14.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":59.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:15.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:16.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":55.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:17.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:18.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:19.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:20.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:21.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:22.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:23.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":103.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:24.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:25.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":55.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:26.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":70.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:27.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":70.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:54.475Z","event":"sample","detail":"queues","kind":"sample","data":{"sendQueueKB":0.0,"redoQueueKB":16.0}}
+{"utc":"2026-10-13T02:26:54.475Z","event":"link","detail":"ag-agsqlvm-node-1 synchronized","kind":"link","link":"ag-agsqlvm-node-1","quiet":true,"note":"send 0 KB · redo 16 KB","state":"synchronized"}
+{"utc":"2026-10-13T02:26:28.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":81.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:29.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":69.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:30.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:31.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":74.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:32.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":59.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:33.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":69.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:34.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":55.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:35.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:36.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":92.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:37.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:38.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:39.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:40.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:41.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:42.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":55.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:43.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:44.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":58.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:45.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:46.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:47.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":55.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:48.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:49.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:50.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:51.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":58.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:52.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":61.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:53.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":59.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:54.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":55.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:55.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:56.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":74.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:57.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:58.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":59.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:26:59.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:00.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:01.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":55.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:02.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":58.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:03.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:04.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":58.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:05.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:06.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:07.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":61.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:36.223Z","event":"sample","detail":"queues","kind":"sample","data":{"sendQueueKB":0.0,"redoQueueKB":8.0}}
+{"utc":"2026-10-13T02:27:36.224Z","event":"link","detail":"ag-agsqlvm-node-1 synchronized","kind":"link","link":"ag-agsqlvm-node-1","quiet":true,"note":"send 0 KB · redo 8 KB","state":"synchronized"}
+{"utc":"2026-10-13T02:27:36.224Z","event":"phase-done","detail":"observe done","kind":"phase","status":"done","phase":"observe"}
+{"utc":"2026-10-13T02:27:36.228Z","event":"phase-running","detail":"verify running","kind":"phase","status":"running","phase":"verify"}
+{"utc":"2026-10-13T02:28:07.905Z","event":"metric","detail":"sqlvm-ag01-node-1 SYNCHRONIZED as the secondary of sqlvm-ag01-node-2","kind":"metric","unit":"","metric":"resynced","value":true}
+{"utc":"2026-10-13T02:28:07.906Z","event":"link","detail":"ag-agsqlvm-node-1 synchronized","kind":"link","link":"ag-agsqlvm-node-1","to":"sqlvm-ag01-node-1","from":"sqlvm-ag01-node-2","state":"synchronized"}
+{"utc":"2026-10-13T02:27:08.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":65.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:09.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":66.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:10.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":66.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:11.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":67.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:12.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":66.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:13.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":66.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:14.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":58.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:15.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:16.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":55.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:17.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:18.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:19.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:20.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":61.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:21.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:22.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":54.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:23.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":55.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:24.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":55.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:25.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":59.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:26.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:27.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:28.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:29.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":55.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:30.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":59.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:31.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":58.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:32.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":55.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:33.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:34.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:35.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":55.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:36.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":55.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:37.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:38.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:39.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":61.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:40.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":73.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:41.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":61.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:42.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":58.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:43.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":141.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:44.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":63.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:45.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:46.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":66.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:47.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":59.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:48.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":58.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:49.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:50.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:51.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:52.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:53.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:54.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:55.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:56.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:57.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:58.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:27:59.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:00.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":60.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:01.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:02.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:03.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:04.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":62.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:05.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:06.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:07.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:08.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:09.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:10.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":65.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:40.089Z","event":"sample","detail":"queues","kind":"sample","data":{"sendQueueKB":0.0,"redoQueueKB":16.0}}
+{"utc":"2026-10-13T02:28:40.089Z","event":"link","detail":"ag-agsqlvm-node-1 synchronized","kind":"link","link":"ag-agsqlvm-node-1","quiet":true,"note":"send 0 KB · redo 16 KB","state":"synchronized"}
+{"utc":"2026-10-13T02:30:15.562Z","event":"metric","detail":"1649 commit(s) acknowledged to the application, 1649 in the ledger of sqlvm-ag01-node-2","kind":"metric","unit":"","metric":"rpoTx","value":0}
+{"utc":"2026-10-13T02:30:15.565Z","event":"metric","detail":"commits acknowledged to the application in this run","kind":"metric","unit":"","metric":"appCommits","value":1649}
+{"utc":"2026-10-13T02:30:15.566Z","event":"metric","detail":"attempts that returned an error (offline, read-only secondary, node down)","kind":"metric","unit":"","metric":"failedAttempts","value":3}
+{"utc":"2026-10-13T02:30:15.568Z","event":"metric","detail":"sqlvm-ag01-node-2 PRIMARY, 2 AG database(s), last application commit on 10.10.1.5","kind":"metric","unit":"","metric":"verifyPass","value":true}
+{"utc":"2026-10-13T02:30:15.569Z","event":"phase-done","detail":"PASS - sqlvm-ag01-node-2 primary, 0 lost, secondary SYNCHRONIZED","kind":"phase","status":"done","phase":"verify"}
+{"utc":"2026-10-13T02:28:11.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":67.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:13.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":68.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:15.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":60.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:17.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:19.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:21.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":74.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:23.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":60.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:25.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:27.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:29.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":59.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:31.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:33.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":59.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:35.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":58.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:37.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:39.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:41.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":60.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:43.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":59.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:45.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":69.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:47.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":70.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:49.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":69.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:51.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:53.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":77.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:55.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":59.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:57.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:28:59.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":58.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:29:01.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":58.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:29:03.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:29:05.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":61.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:29:07.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:29:09.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":58.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:29:11.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":64.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:29:13.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":60.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:29:15.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:29:17.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":63.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:29:19.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":76.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:29:21.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":65.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:29:23.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":72.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:29:25.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":59.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:29:27.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":59.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:29:29.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":62.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:29:31.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":58.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:29:33.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:29:35.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:29:37.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":60.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:29:39.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:29:41.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:29:43.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":55.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:29:45.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":74.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:29:47.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":113.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:29:49.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":73.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:29:51.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":67.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:29:53.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:29:55.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:29:57.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":59.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:29:59.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":59.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:30:01.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":58.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:30:03.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":58.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:30:05.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":58.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:30:07.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:30:09.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:30:11.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":61.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:30:13.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":84.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:30:15.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:30:17.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":58.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:30:19.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:30:21.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":2.0,"slowCommitMs":58.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:30:47.766Z","event":"sample","detail":"queues","kind":"sample","data":{"sendQueueKB":0.0,"redoQueueKB":16.0}}
+{"utc":"2026-10-13T02:30:47.766Z","event":"link","detail":"ag-agsqlvm-node-1 synchronized","kind":"link","link":"ag-agsqlvm-node-1","quiet":true,"note":"send 0 KB · redo 16 KB","state":"synchronized"}
+{"utc":"2026-10-13T02:31:19.919Z","event":"workload-stopped","detail":"","kind":"log"}
+{"utc":"2026-10-13T02:31:20.325Z","event":"action-completed","detail":"drill completed","kind":"action","status":"completed","action":"drill"}
+{"utc":"2026-10-13T02:31:59.839Z","event":"topology","detail":"2 node(s), 1 link(s)","kind":"topology","nodes":[{"role":"PRIMARY","stack":"ag01","region":"zone-1","global":true,"name":"sqlvm-ag01-node-1","rg":"sqlvm-ag01-node-1-node-2-rg","id":"sqlvm-ag01-node-1","vm":"sqlvm-ag01-node-1-vm","label":"node-1","ip":"10.10.1.4","group":"agsqlvm-node-1"},{"role":"SECONDARY","stack":"ag01","region":"zone-2","global":false,"name":"sqlvm-ag01-node-2","rg":"sqlvm-ag01-node-1-node-2-rg","id":"sqlvm-ag01-node-2","vm":"sqlvm-ag01-node-2-vm","label":"node-2","ip":"10.10.1.5","group":"agsqlvm-node-1"}],"links":[{"from":"sqlvm-ag01-node-1","label":"AG (sync)","state":"healthy","to":"sqlvm-ag01-node-2","id":"ag-agsqlvm-node-1","kind":"ag"}],"params":{"secondary":"node-2","primaryDomain":"Zone 1","failedDomain":"","secondaryDomain":"Zone 2","ag":"agsqlvm-node-1","region":"westus2","primary":"node-1"},"useCase":"uc-01","groups":[{"label":"AG","id":"agsqlvm-node-1","kind":"global"}],"regions":[{"sub":"westus2","label":"Zone 1","id":"zone-1","kind":"zone"},{"sub":"westus2","label":"Zone 2","id":"zone-2","kind":"zone"}]}
+{"utc":"2026-10-13T02:31:59.847Z","event":"action-started","detail":"failback started","kind":"action","status":"started","action":"failback"}
+{"utc":"2026-10-13T02:32:37.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:32:38.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:32:39.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:32:40.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:32:41.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:32:42.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:32:43.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:32:44.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:32:45.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:32:46.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:32:47.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:32:48.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:32:49.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:32:50.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:32:51.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:32:52.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:32:53.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:32:54.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:32:55.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:32:56.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:32:57.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:32:58.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:32:59.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:33:00.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:33:01.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:33:02.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:33:03.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:33:04.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:33:05.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:33:06.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:33:07.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:33:08.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:33:09.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:33:10.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":0.0,"slowCommitMs":0.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:33:38.756Z","event":"sample","detail":"queues","kind":"sample","data":{"redoQueueKB":0.0,"sendQueueKB":120.0}}
+{"utc":"2026-10-13T02:33:38.759Z","event":"link","detail":"ag-agsqlvm-node-1 synchronized","kind":"link","state":"synchronized","note":"send 120 KB · redo 0 KB","quiet":true,"link":"ag-agsqlvm-node-1"}
+{"utc":"2026-10-13T02:34:21.088Z","event":"phase-running","detail":"both replicas synchronous, commits wait for sqlvm-ag01-node-1","kind":"phase","status":"running","phase":"fbsync"}
+{"utc":"2026-10-13T02:35:24.932Z","event":"link","detail":"ag-agsqlvm-node-1 synchronized","kind":"link","link":"ag-agsqlvm-node-1","state":"synchronized"}
+{"utc":"2026-10-13T02:35:24.934Z","event":"phase-done","detail":"sqlvm-ag01-node-1 SYNCHRONIZED","kind":"phase","status":"done","phase":"fbsync"}
+{"utc":"2026-10-13T02:35:24.935Z","event":"phase-running","detail":"AG offline on sqlvm-ag01-node-2: writes stop","kind":"phase","status":"running","phase":"fboffline"}
+{"utc":"2026-10-13T02:35:29.403Z","event":"phase-done","detail":"AG offline on sqlvm-ag01-node-2","kind":"phase","status":"done","phase":"fboffline"}
+{"utc":"2026-10-13T02:35:29.403Z","event":"phase-running","detail":"sqlvm-ag01-node-1: FORCE_FAILOVER_ALLOW_DATA_LOSS (no loss: SYNCHRONIZED, old primary offline)","kind":"phase","status":"running","phase":"fbpromote"}
+{"utc":"2026-10-13T02:35:29.587Z","event":"phase-done","detail":"sqlvm-ag01-node-1 is PRIMARY","kind":"phase","status":"done","phase":"fbpromote"}
+{"utc":"2026-10-13T02:35:56.598Z","event":"node","detail":"sqlvm-ag01-node-1 PRIMARY","kind":"node","global":true,"role":"PRIMARY","node":"sqlvm-ag01-node-1"}
+{"utc":"2026-10-13T02:35:56.599Z","event":"node","detail":"sqlvm-ag01-node-2 SECONDARY","kind":"node","global":false,"role":"SECONDARY","node":"sqlvm-ag01-node-2"}
+{"utc":"2026-10-13T02:35:56.600Z","event":"link","detail":"ag-agsqlvm-node-1 synchronizing","kind":"link","state":"synchronizing","to":"sqlvm-ag01-node-2","from":"sqlvm-ag01-node-1","link":"ag-agsqlvm-node-1"}
+{"utc":"2026-10-13T02:35:29.587Z","event":"phase-running","detail":"sqlvm-ag01-node-2 -> SECONDARY, data movement resumed","kind":"phase","status":"running","phase":"fbdemote"}
+{"utc":"2026-10-13T02:35:29.845Z","event":"phase-done","detail":"sqlvm-ag01-node-2 is SECONDARY; commit gate back to 0","kind":"phase","status":"done","phase":"fbdemote"}
+{"utc":"2026-10-13T02:35:56.603Z","event":"clock-start","detail":"AG offline on sqlvm-ag01-node-2: writes stop","kind":"clock","status":"start","clock":"fbinterruption","at":"2026-10-13T02:35:29.403Z"}
+{"utc":"2026-10-13T02:35:56.607Z","event":"metric","detail":"offline -> promoted 0.2 s -> demoted + resumed 0.3 s","kind":"metric","unit":"s","metric":"failbackSwapSeconds","value":0.4}
+{"utc":"2026-10-13T02:35:29.845Z","event":"phase-running","detail":"the application retries until sqlvm-ag01-node-1 accepts its commits","kind":"phase","status":"running","phase":"fbreconnect"}
+{"utc":"2026-10-13T02:33:46.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":69.0,"failPerSec":0.5}}
+{"utc":"2026-10-13T02:33:48.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":66.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:33:50.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":68.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:33:52.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:33:54.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:33:56.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":63.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:33:58.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:34:00.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:34:02.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":55.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:34:04.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:34:06.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":59.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:34:08.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":61.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:34:10.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":55.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:34:12.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":58.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:34:14.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:34:16.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":66.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:34:18.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:34:20.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":59.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:34:22.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":60.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:34:24.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":69.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:34:26.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":75.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:34:28.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":58.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:34:30.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":67.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:34:32.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":58.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:34:34.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:34:36.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":59.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:34:38.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":61.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:34:40.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":58.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:34:42.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:34:44.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:34:46.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":55.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:34:48.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":61.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:34:50.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":59.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:34:52.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:34:54.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":59.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:34:56.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":60.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:34:58.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":63.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:35:00.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":80.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:35:02.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":66.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:35:04.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":64.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:35:06.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":67.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:35:08.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":66.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:35:10.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":60.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:35:12.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:35:14.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":58.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:35:16.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:35:18.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":58.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:35:20.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":56.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:35:22.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":57.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:35:24.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":61.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:35:26.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":59.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:35:28.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":68.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:35:30.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":2.5,"slowCommitMs":93.0,"failPerSec":0.5}}
+{"utc":"2026-10-13T02:35:32.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":122.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:35:34.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":80.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:35:36.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":258.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:35:38.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":311.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:35:40.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":87.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:35:42.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":74.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:35:44.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":80.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:35:46.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":77.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:35:48.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":87.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:35:50.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":79.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:35:52.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":73.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:35:54.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":84.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:35:56.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":71.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:35:58.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":80.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:00.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.5,"slowCommitMs":83.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:02.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":2.0,"slowCommitMs":68.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:28.424Z","event":"sample","detail":"queues","kind":"sample","data":{"redoQueueKB":16.0,"sendQueueKB":0.0}}
+{"utc":"2026-10-13T02:36:28.425Z","event":"link","detail":"ag-agsqlvm-node-1 synchronized","kind":"link","state":"synchronized","note":"send 0 KB · redo 16 KB","quiet":true,"link":"ag-agsqlvm-node-1"}
+{"utc":"2026-10-13T02:37:00.614Z","event":"clock-stop","detail":"first commit on sqlvm-ag01-node-1","kind":"clock","status":"stop","clock":"fbinterruption","at":"2026-10-13T02:35:30.673Z"}
+{"utc":"2026-10-13T02:37:00.616Z","event":"metric","detail":"application view: last commit on sqlvm-ag01-node-2 at 02:35:29.463, first on sqlvm-ag01-node-1 at 02:35:30.673 UTC; 1 failed attempt(s) in between","kind":"metric","unit":"s","metric":"failbackRto","value":1.2}
+{"utc":"2026-10-13T02:37:00.617Z","event":"metric","detail":"first commit on sqlvm-ag01-node-1 (seq 401) without any change to the application","kind":"metric","unit":"","metric":"failbackAppReconnected","value":true}
+{"utc":"2026-10-13T02:35:30.673Z","event":"phase-done","detail":"first commit on sqlvm-ag01-node-1 1.2 s after the last one on sqlvm-ag01-node-2","kind":"phase","status":"done","phase":"fbreconnect"}
+{"utc":"2026-10-13T02:37:00.620Z","event":"phase-running","detail":"fbverify running","kind":"phase","status":"running","phase":"fbverify"}
+{"utc":"2026-10-13T02:37:32.902Z","event":"metric","detail":"sqlvm-ag01-node-2 SYNCHRONIZED as the secondary of sqlvm-ag01-node-1","kind":"metric","unit":"","metric":"failbackResynced","value":true}
+{"utc":"2026-10-13T02:37:32.904Z","event":"link","detail":"ag-agsqlvm-node-1 synchronized","kind":"link","state":"synchronized","to":"sqlvm-ag01-node-2","from":"sqlvm-ag01-node-1","link":"ag-agsqlvm-node-1"}
+{"utc":"2026-10-13T02:36:03.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":66.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:04.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":68.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:05.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":90.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:06.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":71.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:07.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":72.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:08.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":82.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:09.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":68.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:10.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":71.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:11.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":71.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:12.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":73.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:13.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":70.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:14.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":69.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:15.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":70.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:16.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":69.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:17.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":69.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:18.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":75.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:19.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":77.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:20.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":80.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:21.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":76.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:22.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":74.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:23.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":82.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:24.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":71.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:25.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":68.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:26.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":84.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:27.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":76.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:28.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":71.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:29.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":70.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:30.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":83.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:31.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":73.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:32.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":68.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:33.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":90.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:34.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":74.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:35.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":70.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:36.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":88.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:37.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":77.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:38.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":67.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:39.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":76.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:40.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":72.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:41.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":71.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:42.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":80.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:43.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":71.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:44.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":75.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:45.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":74.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:46.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":72.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:47.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":73.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:48.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":77.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:49.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":67.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:50.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":74.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:51.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":74.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:52.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":79.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:53.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":75.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:54.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":74.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:55.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":70.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:56.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":71.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:57.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":73.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:58.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":76.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:36:59.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":89.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:00.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":67.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:01.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":72.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:02.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":87.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:03.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":67.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:04.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":70.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:05.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":90.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:06.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":74.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:07.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":70.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:08.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":82.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:09.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":87.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:10.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":69.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:11.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":78.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:12.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":73.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:13.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":102.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:14.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":83.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:15.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":74.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:16.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":78.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:17.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":70.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:18.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":78.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:19.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":71.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:20.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":79.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:21.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":75.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:22.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":73.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:23.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":71.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:24.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":75.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:25.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":66.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:26.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":71.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:27.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":67.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:28.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":70.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:29.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":69.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:30.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":73.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:31.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":71.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:32.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":76.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:33.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":74.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:34.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":3.0,"slowCommitMs":95.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:37:35.000Z","event":"sample","detail":"writer","kind":"sample","data":{"txPerSec":4.0,"slowCommitMs":78.0,"failPerSec":0.0}}
+{"utc":"2026-10-13T02:38:04.582Z","event":"sample","detail":"queues","kind":"sample","data":{"redoQueueKB":16.0,"sendQueueKB":0.0}}
+{"utc":"2026-10-13T02:38:04.582Z","event":"link","detail":"ag-agsqlvm-node-1 synchronized","kind":"link","state":"synchronized","note":"send 0 KB · redo 16 KB","quiet":true,"link":"ag-agsqlvm-node-1"}
+{"utc":"2026-10-13T02:39:40.434Z","event":"metric","detail":"987 commit(s) acknowledged to the application, 987 in the ledger of sqlvm-ag01-node-1","kind":"metric","unit":"","metric":"failbackRpoTx","value":0}
+{"utc":"2026-10-13T02:39:40.437Z","event":"metric","detail":"sqlvm-ag01-node-1 PRIMARY, 2 AG database(s), last application commit on 10.10.1.4","kind":"metric","unit":"","metric":"failbackVerifyPass","value":true}
+{"utc":"2026-10-13T02:39:40.439Z","event":"phase-done","detail":"PASS - sqlvm-ag01-node-1 primary, 0 lost, secondary SYNCHRONIZED","kind":"phase","status":"done","phase":"fbverify"}
+{"utc":"2026-10-13T02:39:40.440Z","event":"action-completed","detail":"failback completed","kind":"action","status":"completed","action":"failback"}

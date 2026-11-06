@@ -26,3 +26,4 @@ bicep/*.compiled.json
 .DS_Store
 Thumbs.db
 *.swp
+.DS_Store

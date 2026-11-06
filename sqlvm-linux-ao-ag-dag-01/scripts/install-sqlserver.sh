@@ -29,6 +29,19 @@ if mountpoint -q /sqldata && ! mountpoint -q /var/opt/mssql/data; then
   echo "/sqldata/mssql-data /var/opt/mssql/data none bind,nofail,x-systemd.requires-mounts-for=/sqldata 0 0" >> /etc/fstab
 fi
 
+# The RHEL LVM image has a 2 GB root volume, but /opt lives on it: SQL Server needs ~1.6 GB there and
+# Microsoft Defender (mdatp, pushed to the VM at an unpredictable time) ~430 MB more. rootvg has
+# plenty of unallocated space, so grow root first.
+ROOT_LV="$(findmnt -n -o SOURCE /)"
+ROOT_MIN_MB=6144
+if lvs "$ROOT_LV" &>/dev/null; then
+  ROOT_MB="$(lvs --noheadings --nosuffix --units m -o lv_size "$ROOT_LV" | awk '{printf "%d", $1}')"
+  if [ "$ROOT_MB" -lt "$ROOT_MIN_MB" ]; then
+    echo "--- Growing root volume from ${ROOT_MB} MB to ${ROOT_MIN_MB} MB ---"
+    lvextend -r -L "${ROOT_MIN_MB}M" "$ROOT_LV"
+  fi
+fi
+
 dnf localinstall -y "/tmp/$ENGINE_RPM"
 chown mssql:mssql /var/opt/mssql/data 2>/dev/null || true
 

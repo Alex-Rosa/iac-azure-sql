@@ -277,14 +277,28 @@ function Resolve-AllowedSourceIps {
 }
 
 # Updates the SSH/SQL rules on whichever of this stack's NSGs exist - no VM/Bicep redeploy.
+# A missing rule is recreated as in bicep/node.bicep: tenant governance has been seen removing
+# allow-ssh from live NSGs, and deploy skips Bicep when the VMs are healthy.
 function Update-NsgAccess {
     param([string[]]$Cidrs)
+    $rules = @(
+        @{ Name = 'allow-ssh';       Priority = 100; Port = '22' }
+        @{ Name = 'allow-sqlserver'; Priority = 110; Port = '1433' }
+    )
     foreach ($suffix in $Nodes.Values) {
         $nsg = "$NamePrefix-$suffix-nsg"
         if (-not (az network nsg show -g $ResourceGroup -n $nsg --query name -o tsv 2>$null)) { continue }
-        foreach ($rule in @('allow-ssh', 'allow-sqlserver')) {
-            az network nsg rule update -g $ResourceGroup --nsg-name $nsg -n $rule --source-address-prefixes @Cidrs --output none
-            if ($LASTEXITCODE -ne 0) { Write-Error "Failed to update rule '$rule' on '$nsg'."; exit 1 }
+        foreach ($rule in $rules) {
+            if (az network nsg rule show -g $ResourceGroup --nsg-name $nsg -n $rule.Name --query name -o tsv 2>$null) {
+                az network nsg rule update -g $ResourceGroup --nsg-name $nsg -n $rule.Name --source-address-prefixes @Cidrs --output none
+            } else {
+                Write-Host "  $nsg : rule '$($rule.Name)' is missing - recreating it." -ForegroundColor Yellow
+                az network nsg rule create -g $ResourceGroup --nsg-name $nsg -n $rule.Name --priority $rule.Priority `
+                    --direction Inbound --access Allow --protocol Tcp --source-port-ranges '*' `
+                    --source-address-prefixes @Cidrs --destination-address-prefixes '*' `
+                    --destination-port-ranges $rule.Port --output none
+            }
+            if ($LASTEXITCODE -ne 0) { Write-Error "Failed to update rule '$($rule.Name)' on '$nsg'."; exit 1 }
         }
         Write-Host "  $nsg : SSH/SQL allowed from $($Cidrs -join ', ')" -ForegroundColor Green
     }
@@ -435,7 +449,9 @@ function Invoke-RemoteSql {
 function Invoke-WithRetry {
     param([scriptblock]$Operation, [string]$Description, [int]$MaxAttempts = 3, [int]$DelaySeconds = 10)
     for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
-        & $Operation
+        # Out-Host, not the output stream: stdout left in the stream joins the return value, and a
+        # non-empty array is truthy, so callers' "if (-not $ok)" would miss a real failure.
+        & $Operation | Out-Host
         if ($LASTEXITCODE -eq 0) { return $true }
         if ($attempt -lt $MaxAttempts) {
             Write-Host "  $Description failed (attempt $attempt/$MaxAttempts, exit $LASTEXITCODE) - retrying in $DelaySeconds s..." -ForegroundColor Yellow
@@ -1687,6 +1703,9 @@ A primary node can't be rebuilt into an existing AG in place. Options:
         Write-Host ''
         Write-Host "=== Extracting $RhelZipPath ===" -ForegroundColor Cyan
         $ExtractDir = Join-Path ([System.IO.Path]::GetTempPath()) 'sqlvm-rhel9-rpms'
+        # Start clean: this folder outlives the run, and RPMs left by a different zip (Rhel10/ sorts
+        # before Rhel9/) would otherwise be picked up below and fail on the VM's glibc.
+        Remove-Item $ExtractDir -Recurse -Force -ErrorAction SilentlyContinue
         Expand-Archive -Path $RhelZipPath -DestinationPath $ExtractDir -Force
         $EngineRpm = Get-ChildItem $ExtractDir -Recurse -Filter 'mssql-server-*.rpm' |
                      Where-Object { $_.Name -notmatch '-(ha|extensibility|polybase)-' } |

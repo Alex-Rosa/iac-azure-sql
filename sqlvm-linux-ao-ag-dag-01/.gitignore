@@ -1,6 +1,7 @@
 # Local secrets / generated state - never commit these
 *.rpm
 Rhel9.zip
+Rhel10.zip
 *.pfx
 *.pvk
 *.cer

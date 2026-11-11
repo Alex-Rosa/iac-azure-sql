@@ -40,6 +40,10 @@
     ./sqlvm-linux-ag.ps1 -Action deploy -Identifier 257672 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -PrimaryLocation eastus -SecondaryLocation westus2 -AllowedSourceIps auto
 
 .EXAMPLE
+    ./sqlvm-linux-ag.ps1 -Action deploy -Identifier ultra01 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -PrimaryLocation westus2 -SecondaryLocation westus2 -PrimaryZone 1 -SecondaryZone 1 -VmSize Standard_E16-8ads_v7 -DataDiskSku UltraSSD_LRS -DataDiskSizeGB 512 -DataDiskIops 20000 -DataDiskMbps 500
+    # zonal nodes with an Ultra data disk (provisioned IOPS / MB/s, host caching off)
+
+.EXAMPLE
     ./sqlvm-linux-ag.ps1 -Action deploy-dag -Identifier ag01 -PrimaryNodeSuffix node-1 -SecondaryNodeSuffix node-2 -DagForwarderIdentifier ag02 -DagForwarderPrimarySuffix node-3 -DagForwarderSecondarySuffix node-4
     # Distributed AG: AG of ag01 node-1/node-2 = global primary, AG of ag02 node-3/node-4 = forwarder
 
@@ -85,6 +89,20 @@ param(
     # Empty = on a new stack, list the sizes that pass the checks in the chosen region(s) and let
     # you pick one. An existing node always keeps its current size.
     [string]$VmSize      = '',
+    # Availability zone per node ('1'..'4'). Empty = regional (no zone). New nodes only.
+    # -DataDiskSku UltraSSD_LRS needs a zone wherever the region has zones.
+    [ValidateSet('', '1', '2', '3', '4')]
+    [string]$PrimaryZone   = '',
+    [ValidateSet('', '1', '2', '3', '4')]
+    [string]$SecondaryZone = '',
+    # SQL data disk of new nodes. Empty / 0 = bicep/parameters.json or the template default
+    # (Premium_LRS, 256 GB). -DataDiskIops / -DataDiskMbps apply to UltraSSD_LRS and PremiumV2_LRS
+    # only (0 = platform default for the size); those two are attached with host caching off.
+    [ValidateSet('', 'Premium_LRS', 'StandardSSD_LRS', 'PremiumV2_LRS', 'UltraSSD_LRS')]
+    [string]$DataDiskSku    = '',
+    [int]$DataDiskSizeGB    = 0,
+    [int]$DataDiskIops      = 0,
+    [int]$DataDiskMbps      = 0,
     # Empty = pick the first free 10.<n>.0.0/16 (n = 10, 20, ... 250) that overlaps no VNet in
     # the subscription. An existing node's VNet always keeps its current address space.
     [string]$PrimaryVnetCidr   = '',
@@ -516,11 +534,13 @@ function Import-SavedCredentials {
 }
 
 # Checks both things that can block a deploy, since Azure reports them differently:
-#  1. Offer/location restrictions on the SKU (zone-only restrictions ignored - no zones pinned).
+#  1. Offer/location restrictions on the SKU. Zone-only restrictions are ignored unless -Zone
+#     pins one; then the size must be offered and unrestricted in that zone, and with -Ultra
+#     the zone (or, with no zone, the region) must support Ultra Disks for this size.
 #  2. Core quota headroom for the SKU's family - a SKU can be unrestricted and still fail with
 #     QuotaExceeded when the family's approved quota in that region is too low.
 function Test-RegionCapacity {
-    param([string]$Location, [string]$Size, [int]$VmCount = 1)
+    param([string]$Location, [string]$Size, [int]$VmCount = 1, [string]$Zone = '', [switch]$Ultra)
 
     $json = az vm list-skus --location $Location --size $Size --resource-type virtualMachines --output json 2>$null
     $skus = @(if ($json) { $json | ConvertFrom-Json | Where-Object { $_.name -eq $Size } })
@@ -533,6 +553,33 @@ function Test-RegionCapacity {
     $blocking = @($sku.restrictions | Where-Object { $_ -and $_.type -ne 'Zone' })
     if ($blocking.Count -gt 0) {
         Write-Host " restricted ($($blocking[0].reasonCode))" -NoNewline
+        return $false
+    }
+
+    # Optional properties are read through PSObject so StrictMode does not throw when az omits them.
+    $prop = { param($o, $n) if ($o -and $o.PSObject.Properties[$n]) { $o.$n } }
+    $hasUltra = { param($caps) @($caps | Where-Object { $_ -and $_.name -eq 'UltraSSDAvailable' -and $_.value -eq 'True' }).Count -gt 0 }
+    $li = @(& $prop $sku 'locationInfo') | Select-Object -First 1
+    if ($Zone) {
+        if (@(& $prop $li 'zones') -notcontains $Zone) {
+            Write-Host " not offered in zone $Zone" -NoNewline
+            return $false
+        }
+        $zoneBlocked = @($sku.restrictions | Where-Object {
+            $_ -and $_.type -eq 'Zone' -and @(& $prop (& $prop $_ 'restrictionInfo') 'zones') -contains $Zone })
+        if ($zoneBlocked.Count -gt 0) {
+            Write-Host " restricted in zone $Zone ($($zoneBlocked[0].reasonCode))" -NoNewline
+            return $false
+        }
+        if ($Ultra) {
+            $zd = @(& $prop $li 'zoneDetails' | Where-Object { $_ -and @(& $prop $_ 'name') -contains $Zone })
+            if (@($zd | Where-Object { & $hasUltra (& $prop $_ 'capabilities') }).Count -eq 0) {
+                Write-Host " no Ultra Disk support in zone $Zone" -NoNewline
+                return $false
+            }
+        }
+    } elseif ($Ultra -and -not (& $hasUltra $sku.capabilities)) {
+        Write-Host ' no Ultra Disk support without a zone (pass -PrimaryZone / -SecondaryZone)' -NoNewline
         return $false
     }
 
@@ -670,10 +717,12 @@ function Select-VmSize {
 # Validates that $Size can be deployed in the chosen region; if not, asks for another region
 # (or lets the user deploy anyway) instead of silently switching to a region they didn't pick.
 function Confirm-RegionCapacity {
-    param([string]$Role, [string]$Location, [int]$VmCount)
+    param([string]$Role, [string]$Location, [int]$VmCount, [string]$Zone = '')
+    $ultra = $DataDiskSku -eq 'UltraSSD_LRS'
     while ($true) {
-        Write-Host "  Checking $VmSize in $Location ($Role) ..." -NoNewline
-        if (Test-RegionCapacity -Location $Location -Size $VmSize -VmCount $VmCount) {
+        $what = "$VmSize in $Location" + $(if ($Zone) { " zone $Zone" }) + $(if ($ultra) { ' with Ultra Disk' })
+        Write-Host "  Checking $what ($Role) ..." -NoNewline
+        if (Test-RegionCapacity -Location $Location -Size $VmSize -VmCount $VmCount -Zone $Zone -Ultra:$ultra) {
             Write-Host ' available' -ForegroundColor Green
             return $Location
         }
@@ -1515,7 +1564,7 @@ A primary node can't be rebuilt into an existing AG in place. Options:
         if (-not (Test-RegionName $SecondaryLocation)) { Write-Error "Unknown Azure region '$SecondaryLocation'."; exit 1 }
         Write-Host ''
         Write-Host "=== Validating '$VmSize' availability ===" -ForegroundColor Cyan
-        $SecondaryLocation = Confirm-RegionCapacity -Role 'secondary' -Location $SecondaryLocation -VmCount 1
+        $SecondaryLocation = Confirm-RegionCapacity -Role 'secondary' -Location $SecondaryLocation -VmCount 1 -Zone $SecondaryZone
     } else {
         if (-not $PrimaryLocation)   { $PrimaryLocation   = Read-Region -Role 'primary'   -Default 'eastus' }
         if (-not $SecondaryLocation) { $SecondaryLocation = Read-Region -Role 'secondary' -Default 'westus2' }
@@ -1535,9 +1584,13 @@ A primary node can't be rebuilt into an existing AG in place. Options:
             Write-Host ''
             Write-Host "=== Validating '$VmSize' availability ===" -ForegroundColor Cyan
             $sameRegion = $PrimaryLocation -eq $SecondaryLocation
-            $PrimaryLocation = Confirm-RegionCapacity -Role 'primary' -Location $PrimaryLocation -VmCount $(if ($sameRegion) { 2 } else { 1 })
-            if ($sameRegion) { $SecondaryLocation = $PrimaryLocation }
-            else { $SecondaryLocation = Confirm-RegionCapacity -Role 'secondary' -Location $SecondaryLocation -VmCount 1 }
+            $PrimaryLocation = Confirm-RegionCapacity -Role 'primary' -Location $PrimaryLocation -VmCount $(if ($sameRegion) { 2 } else { 1 }) -Zone $PrimaryZone
+            if ($sameRegion) {
+                $SecondaryLocation = $PrimaryLocation
+                # Same region, different zone: the quota was checked for both VMs above; check the other zone too.
+                if ($SecondaryZone -ne $PrimaryZone) { $null = Confirm-RegionCapacity -Role 'secondary' -Location $SecondaryLocation -VmCount 1 -Zone $SecondaryZone }
+            }
+            else { $SecondaryLocation = Confirm-RegionCapacity -Role 'secondary' -Location $SecondaryLocation -VmCount 1 -Zone $SecondaryZone }
         } else {
             # List what's actually usable in the chosen regions and let the user pick.
             while (-not $VmSize) {
@@ -1559,6 +1612,20 @@ A primary node can't be rebuilt into an existing AG in place. Options:
     Write-Host "Primary region   : $PrimaryLocation" -ForegroundColor Green
     Write-Host "Secondary region : $SecondaryLocation" -ForegroundColor Green
     Write-Host "VM size          : $VmSize" -ForegroundColor Green
+    if (-not ($pri -and $sec)) {
+        if ($PrimaryZone -or $SecondaryZone) {
+            Write-Host "Zones            : primary=$(if ($PrimaryZone) { $PrimaryZone } else { 'regional' }), secondary=$(if ($SecondaryZone) { $SecondaryZone } else { 'regional' })" -ForegroundColor Green
+        }
+        if ($DataDiskSku -or $DataDiskSizeGB -or $DataDiskIops -or $DataDiskMbps) {
+            Write-Host ("Data disk        : {0}{1}{2}{3}" -f $(if ($DataDiskSku) { $DataDiskSku } else { 'default type' }),
+                $(if ($DataDiskSizeGB) { ", $DataDiskSizeGB GB" }), $(if ($DataDiskIops) { ", $DataDiskIops IOPS" }), $(if ($DataDiskMbps) { ", $DataDiskMbps MB/s" })) -ForegroundColor Green
+        }
+        if (($DataDiskIops -or $DataDiskMbps) -and $DataDiskSku -notin @('UltraSSD_LRS', 'PremiumV2_LRS')) {
+            Write-Host '-DataDiskIops / -DataDiskMbps are ignored: they apply to UltraSSD_LRS and PremiumV2_LRS only.' -ForegroundColor Yellow
+        }
+    } elseif ($PrimaryZone -or $SecondaryZone -or $DataDiskSku -or $DataDiskSizeGB -or $DataDiskIops -or $DataDiskMbps) {
+        Write-Host 'Zone and data-disk options are ignored: both nodes already exist and keep what they have.' -ForegroundColor Yellow
+    }
     if ($PrimaryLocation -eq $SecondaryLocation) {
         Write-Host 'Both nodes are in the same region (regional VNet peering, no cross-region DR).' -ForegroundColor Yellow
     }
@@ -1625,6 +1692,12 @@ A primary node can't be rebuilt into an existing AG in place. Options:
             sshPublicKey          = @{ value = $SshPublicKey }
         }
         if ($SourceCidrs.Count -gt 0) { $runParams.allowedSourceIps = @{ value = @($SourceCidrs) } }
+        if ($PrimaryZone)    { $runParams.primaryZone       = @{ value = $PrimaryZone } }
+        if ($SecondaryZone)  { $runParams.secondaryZone     = @{ value = $SecondaryZone } }
+        if ($DataDiskSku)    { $runParams.sqlDataDiskSku    = @{ value = $DataDiskSku } }
+        if ($DataDiskSizeGB) { $runParams.sqlDataDiskSizeGB = @{ value = $DataDiskSizeGB } }
+        if ($DataDiskIops)   { $runParams.sqlDataDiskIops   = @{ value = $DataDiskIops } }
+        if ($DataDiskMbps)   { $runParams.sqlDataDiskMbps   = @{ value = $DataDiskMbps } }
         $RunParamsFile = Join-Path ([System.IO.Path]::GetTempPath()) "$StackName.parameters.json"
         @{
             '$schema'      = 'https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#'

@@ -11,6 +11,11 @@ param adminUsername string
 param sshPublicKey string
 param allowedSourceIps array
 param sqlDataDiskSizeGB int
+param sqlDataDiskSku string
+param sqlDataDiskIops int
+param sqlDataDiskMbps int
+param primaryZone string
+param secondaryZone string
 param tags object
 
 // ── Primary replica (its own VNet/NSG/PIP/NIC/disk/VM) ─────────────────────────
@@ -28,6 +33,10 @@ module primary 'node.bicep' = {
     sshPublicKey: sshPublicKey
     allowedSourceIps: allowedSourceIps
     sqlDataDiskSizeGB: sqlDataDiskSizeGB
+    sqlDataDiskSku: sqlDataDiskSku
+    sqlDataDiskIops: sqlDataDiskIops
+    sqlDataDiskMbps: sqlDataDiskMbps
+    zone: primaryZone
     tags: tags
   }
 }
@@ -47,6 +56,10 @@ module secondary 'node.bicep' = {
     sshPublicKey: sshPublicKey
     allowedSourceIps: allowedSourceIps
     sqlDataDiskSizeGB: sqlDataDiskSizeGB
+    sqlDataDiskSku: sqlDataDiskSku
+    sqlDataDiskIops: sqlDataDiskIops
+    sqlDataDiskMbps: sqlDataDiskMbps
+    zone: secondaryZone
     tags: tags
   }
 }

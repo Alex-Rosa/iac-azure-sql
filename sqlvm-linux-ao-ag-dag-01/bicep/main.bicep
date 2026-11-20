@@ -49,6 +49,24 @@ param allowedSourceIps array = ['0.0.0.0/0']
 @description('SQL data disk size in GB, on both nodes')
 param sqlDataDiskSizeGB int = 256
 
+@description('SQL data disk type, on both nodes. UltraSSD_LRS and PremiumV2_LRS need a zone in regions that have zones, and are attached with host caching off.')
+@allowed(['Premium_LRS', 'StandardSSD_LRS', 'PremiumV2_LRS', 'UltraSSD_LRS'])
+param sqlDataDiskSku string = 'Premium_LRS'
+
+@description('Provisioned IOPS of the SQL data disk (UltraSSD_LRS / PremiumV2_LRS only; 0 = the platform default for the size)')
+param sqlDataDiskIops int = 0
+
+@description('Provisioned throughput in MB/s of the SQL data disk (UltraSSD_LRS / PremiumV2_LRS only; 0 = the platform default)')
+param sqlDataDiskMbps int = 0
+
+@description('Availability zone of the PRIMARY node (VM, public IP, data disk), e.g. 1. Empty = regional (no zone).')
+@allowed(['', '1', '2', '3', '4'])
+param primaryZone string = ''
+
+@description('Availability zone of the SECONDARY node. Empty = regional (no zone).')
+@allowed(['', '1', '2', '3', '4'])
+param secondaryZone string = ''
+
 @description('Tags applied to every resource')
 param tags object = {
   project: 'sqlvm-ag'
@@ -87,6 +105,11 @@ module resources 'resources.bicep' = {
     sshPublicKey: sshPublicKey
     allowedSourceIps: allowedSourceIps
     sqlDataDiskSizeGB: sqlDataDiskSizeGB
+    sqlDataDiskSku: sqlDataDiskSku
+    sqlDataDiskIops: sqlDataDiskIops
+    sqlDataDiskMbps: sqlDataDiskMbps
+    primaryZone: primaryZone
+    secondaryZone: secondaryZone
     tags: stackTags
   }
 }

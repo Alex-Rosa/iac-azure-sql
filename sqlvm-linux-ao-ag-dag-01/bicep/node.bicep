@@ -16,11 +16,25 @@ param adminUsername string
 param sshPublicKey string
 param allowedSourceIps array
 param sqlDataDiskSizeGB int
+param sqlDataDiskSku string = 'Premium_LRS'
+@description('Provisioned IOPS / MB/s - UltraSSD_LRS and PremiumV2_LRS only; 0 = platform default')
+param sqlDataDiskIops int = 0
+param sqlDataDiskMbps int = 0
+@description('Availability zone for the VM, public IP and data disk. Empty = regional.')
+param zone string = ''
 param tags object
 
 var nodeName = '${namePrefix}-${nodeSuffix}'
 // First /24 after the network address, e.g. 10.10.0.0/16 -> 10.10.1.0/24
 var subnetPrefix = cidrSubnet(addressSpace, 24, 1)
+// null (not []) when regional, so a redeploy over an existing regional node changes nothing.
+var zones = empty(zone) ? null : [zone]
+// Ultra / Premium SSD v2: performance is provisioned separately from size, and host caching is not supported.
+var provisionedPerfDisk = sqlDataDiskSku == 'UltraSSD_LRS' || sqlDataDiskSku == 'PremiumV2_LRS'
+var sqlDiskPerf = union(
+  provisionedPerfDisk && sqlDataDiskIops > 0 ? { diskIOPSReadWrite: sqlDataDiskIops } : {},
+  provisionedPerfDisk && sqlDataDiskMbps > 0 ? { diskMBpsReadWrite: sqlDataDiskMbps } : {}
+)
 
 // Same first-boot orchestration on both nodes: format/mount the data disk (found by LUN) to /sqldata and
 // open the ports SQL Server + the Always On mirroring endpoint need at the OS firewall level
@@ -129,6 +143,7 @@ resource pip 'Microsoft.Network/publicIPAddresses@2023-09-01' = {
   name: '${nodeName}-pip'
   location: location
   tags: tags
+  zones: zones
   sku: {
     name: 'Standard'
   }
@@ -166,22 +181,25 @@ resource sqlDisk 'Microsoft.Compute/disks@2023-10-02' = {
   name: '${nodeName}-sqldata'
   location: location
   tags: tags
+  zones: zones
   sku: {
-    name: 'Premium_LRS'
+    name: sqlDataDiskSku
   }
-  properties: {
+  properties: union({
     creationData: {
       createOption: 'Empty'
     }
     diskSizeGB: sqlDataDiskSizeGB
-  }
+  }, sqlDiskPerf)
 }
 
 resource vm 'Microsoft.Compute/virtualMachines@2023-09-01' = {
   name: '${nodeName}-vm'
   location: location
   tags: union(tags, { agRole: agRole })
+  zones: zones
   properties: {
+    additionalCapabilities: sqlDataDiskSku == 'UltraSSD_LRS' ? { ultraSSDEnabled: true } : null
     hardwareProfile: {
       vmSize: vmSize
     }
@@ -226,7 +244,7 @@ resource vm 'Microsoft.Compute/virtualMachines@2023-09-01' = {
           managedDisk: {
             id: sqlDisk.id
           }
-          caching: 'ReadWrite'
+          caching: provisionedPerfDisk ? 'None' : 'ReadWrite'
         }
       ]
     }
